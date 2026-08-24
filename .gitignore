@@ -40,3 +40,12 @@ yarn-error.*
 /ios
 /android
 /build
+
+# HarmonyOS (HMOS) build artifacts
+/oh_modules/
+harmony/oh_modules/
+harmony/entry/build/
+harmony/build/
+harmony/.hvigor/
+harmony/**/node_modules/
+ohos-bundle/
