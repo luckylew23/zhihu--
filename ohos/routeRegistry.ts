@@ -3,12 +3,16 @@
 // 把 expo-router 的「文件路径路由」映射到 React Navigation 的 (screenName, component)。
 // name 使用 URL 路径形态（去掉 /index），例如 app/question/[id]/index.tsx -> 'question/[id]'。
 // 新增页面时，仿照下面追加一行即可；ROUTE_TABLE 用于 useRouter().push('/question/123') 解析。
+//
+// 注意：'(tabs)' 直接映射到 HomeScreen（app/(tabs)/index）。原项目的底部 Tab 与关注/推荐/
+// 发布/我的横向切换都由 HomeScreen 内部的 PagerView + 自定义底部栏实现，因此这里
+// 不要再拆成独立导航路由，否则会与原生 Tab 栏重复。
 // ----------------------------------------------------------------------------
 import * as React from 'react';
 
 import HomeTab from '../app/(tabs)/index';
-import PublishTab from '../app/(tabs)/publish';
-import ProfileTab from '../app/(tabs)/profile';
+import IndexRedirect from '../app/index';
+import NotFound from '../app/+not-found';
 
 import Login from '../app/login/index';
 import Article from '../app/article/[id]';
@@ -42,6 +46,10 @@ import PublishPin from '../app/publish/pin';
 import PublishQuestion from '../app/publish/question';
 import SettingsAppearance from '../app/settings/appearance';
 import SettingsFilter from '../app/settings/filter';
+import AnswerDetail from '../app/question/[id]/answer/[answerId]';
+import QuestionWrite from '../app/question/write/[id]';
+import Reply from '../app/comments/replies/[id]';
+import Modal from '../app/modal';
 
 export type RouteComponent = React.ComponentType<any>;
 
@@ -50,8 +58,10 @@ interface RouteDef {
   component: RouteComponent;
 }
 
-// 主路由（不含底部 Tab 容器，Tab 在 App.tsx 中单独构建为 MainTabs）。
+// 主路由（不含底部 Tab 容器，Tab 在 App.tsx 中直接以 '(tabs)' -> HomeTab 承载）。
 export const ROUTES: [string, RouteComponent][] = [
+  ['index', IndexRedirect],
+  ['not-found', NotFound],
   ['login', Login],
   ['article/[id]', Article],
   ['question/[id]', Question],
@@ -84,13 +94,16 @@ export const ROUTES: [string, RouteComponent][] = [
   ['publish/question', PublishQuestion],
   ['settings/appearance', SettingsAppearance],
   ['settings/filter', SettingsFilter],
+  ['question/[id]/answer/[answerId]', AnswerDetail],
+  ['question/write/[id]', QuestionWrite],
+  ['comments/replies/[id]', Reply],
+  ['modal', Modal],
 ];
 
-// 底部 Tab（对应原 app/(tabs)/_layout 的 Slot 结构）。
+// 底部 Tab 容器：路由名 '(tabs)' 与 '(tabs)/index' 都指向 HomeScreen（内部自管横向 Tab）。
 export const TAB_ROUTES: [string, RouteComponent][] = [
+  ['(tabs)', HomeTab],
   ['(tabs)/index', HomeTab],
-  ['(tabs)/publish', PublishTab],
-  ['(tabs)/profile', ProfileTab],
 ];
 
 function toPattern(name: string): { pattern: RegExp; name: string; keys: string[] } {
@@ -106,7 +119,6 @@ function toPattern(name: string): { pattern: RegExp; name: string; keys: string[
   return { pattern: new RegExp('^' + segs.join('/') + '$'), name, keys };
 }
 
-// 含 Tab 内路由（如 '(tabs)/index' 对应 URL '/'，按需扩展）。
 const ALL: RouteDef[] = [
   ...ROUTES.map(([name, component]) => ({ name, component })),
   ...TAB_ROUTES.map(([name, component]) => ({ name, component })),
@@ -115,4 +127,4 @@ const ALL: RouteDef[] = [
 export const ROUTE_TABLE = ALL.map((r) => toPattern(r.name));
 
 // 供 App.tsx 渲染 Tab 导航器使用
-export { HomeTab, PublishTab, ProfileTab };
+export { HomeTab };

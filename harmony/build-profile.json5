@@ -1,6 +1,19 @@
 {
   "app": {
     "signingConfigs": [],
+    "buildOption": {
+      "sourceRoots": [
+        "./ohos",
+        "./platform/ohos/shims"
+      ],
+      "rnoh": {
+        "jsBundleFile": "./entry/src/main/resources/rawfile/index.harmony.bundle",
+        "codeCacheDir": "./codecache",
+        "assetDest": "./entry/src/main/resources/rawfile",
+        "entryRoot": "./ohos",
+        "entryFileName": "index"
+      }
+    },
     "products": [
       {
         "name": "default",

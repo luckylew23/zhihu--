@@ -1,17 +1,24 @@
-# HarmonyOS (HMOS) 适配总体方案 — Zhihu--
+# HarmonyOS NEXT 适配总体方案 — Zhihu--
 
-> 目标：把原作者的 React Native (Expo) 项目 **zhihu--** 转成可在 HarmonyOS（OpenHarmony）运行的版本，
-> 同时做到 **不影响原作者仓库**、且能持续从上游同步更新。
+> 目标：把原作者的 React Native (Expo) 项目 **zhihu--** 转成可在 **HarmonyOS NEXT**
+> （纯 ArkTS 运行时，API 12 / OHOS 5.0.0）运行的版本，同时做到 **不影响原作者仓库**、
+> 且能持续从上游同步更新。
+>
+> 📌 **路线说明**：HarmonyOS NEXT 是纯 ArkTS 运行时，**不再兼容安卓 APK**。把 RN 应用搬上
+> NEXT 的唯一可行路线是 **React Native OpenHarmony（RNOH）** 端口——用 RNOH 的 ArkTS 宿主工程
+> 承载 RN 的 JS 运行时，产物为 HAP/APP（非 APK）。本方案即采用此路线。
 
 ---
 
 ## 1. 转换路线
 
-采用 **React Native OpenHarmony（RN OHOS）端口** 方案：
+采用 **React Native OpenHarmony（RNOH）端口** 方案（HarmonyOS NEXT 唯一可行的 RN 路线）：
 
 - 保留 ~95% 的 TS/JS 业务代码（`api/`、`store/`、`components/`、`utils/`、`app/`），
   仅替换「原生层 + Expo 专属模块」为 HarmonyOS 兼容实现。
 - 不采用全量 ArkTS 重写（成本极高且与上游无法共享代码）。
+- **不产出安卓 APK**：NEXT 是纯 ArkTS 运行时，构建目标 `runtimeOS: "HarmonyOS"`，
+  产物为 HAP/APP，由 RNOH 的 ArkTS 宿主工程承载 RN JS 运行时。
 
 技术核心：**Metro 模块别名（alias）重定向** —— 在 OHOS 构建时，把业务代码里对
 `expo-*` / 部分 RN 第三方库的 import 重定向到 `platform/ohos/shims/*` 下的鸿蒙垫片。

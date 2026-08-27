@@ -7,8 +7,5 @@
   "license": "GPL-3.0",
   "dependencies": {
     "@rnoh/react-native-openharmony": "0.83.2"
-  },
-  "devDependencies": {
-    "@rnoh/rslint": "0.83.2"
   }
 }
