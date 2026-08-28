@@ -1,0 +1,18 @@
+{
+  "modelVersion": "6.0.0",
+  "dependencies": {},
+  "execution": {
+    // "analyze": "normal",
+    "incremental": true,
+    "parallel": true
+  },
+  "logging": {
+    // "level": "info"
+  },
+  "debugging": {
+    // "stacktrace": false
+  },
+  "nodeOptions": {
+    // "maxOldSpaceSize": 8192
+  }
+}

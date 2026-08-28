@@ -6,6 +6,6 @@
   "author": "",
   "license": "GPL-3.0",
   "dependencies": {
-    "@rnoh/react-native-openharmony": "0.83.2"
+    "@rnoh/react-native-openharmony": "0.84.3"
   }
 }
