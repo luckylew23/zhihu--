@@ -51,6 +51,8 @@ harmony/build/
 harmony/.hvigor/
 harmony/**/node_modules/
 harmony/codecache/
+# JS bundle + 资源由 scripts/build-ohos-bundle.js 生成，属构建产物
+harmony/entry/src/main/resources/rawfile/
 ohos-bundle/
 *.hap
 *.hsp

@@ -121,21 +121,44 @@ npm install --no-save -f package.ohos.json   # 或按文档手动合并依赖
 cd harmony && ohpm install
 ```
 
-### 4.2 生成 Metro Bundle 并构建 HAP
+### 4.2 生成 Metro Bundle（✅ 已在本机跑通）
+
 ```bash
-# 1) 启动 Metro（OHOS 模式，触发别名层）
-HMOS_BUILD=1 npx react-native start
-
-# 2) 在另一终端打包 bundle（产物放入 harmony/entry 资源目录）
-#    （由 RN OHOS CLI / hvigor 插件自动完成，无需手敲）
-
-# 3) 用 DevEco / hvigor 构建
-cd harmony && hvigorw assembleHap --mode module -p product=default
+node scripts/build-ohos-bundle.js          # 生产包（minify, dev=false）
+node scripts/build-ohos-bundle.js --dev    # 调试包
 ```
 
-### 4.3 真机 / 模拟器运行
-- DevEco 打开 `harmony/` 工程 → 签名 → 运行到鸿蒙设备。
+产物（**已实测生成成功**）：
+
+| 文件 | 说明 |
+|------|------|
+| `harmony/entry/src/main/resources/rawfile/bundle.harmony.js` | JS bundle，**3.76 MB / 2006 个模块** |
+| `harmony/entry/src/main/resources/rawfile/bundle.harmony.map` | sourcemap |
+| `harmony/entry/src/main/resources/rawfile/assets/…` | **30 个**资源（react-navigation 图标 + vector-icons 字体） |
+
+> 该目录已被 `.gitignore` 忽略（构建产物），构建 HAP 前请先执行上面的脚本。
+
+#### 为什么产物路径是 `rawfile/bundle.harmony.js`
+RNOH 的 `ResourceJSBundleProvider` 默认 `path = 'bundle.harmony.js'` 并从 **rawfile** 读取
+（见 `harmony/oh_modules/@rnoh/react-native-openharmony/src/main/ets/RNOH/JSBundleProvider.ts:134`）。
+若改文件名，需同步修改 `EntryAbility`。
+
+#### 关于资源(assets)
+Metro 0.83 的 `build` 命令**不再输出资源**（已移除 `--assets-dest`，`--legacy-bundler` 同样不输出），
+因此脚本自行解析 bundle 内的 `registerAsset` 记录并拷贝资源。
+路径对齐 RNOH：`RAWFILE_PREFIX = "resource://RAWFILE/assets/"`，
+Metro 的 `httpServerLocation = "/assets/" + dirname(相对路径)`，
+故 `destination = rawfile + httpServerLocation` 正好落在 `rawfile/assets/<相对路径>`。
+
+### 4.3 构建 HAP 并运行
+```bash
+cd harmony && hvigorw assembleHap --mode module -p product=default
+```
+- 或用 DevEco Studio 打开 `harmony/` 工程 → 签名 → 运行到鸿蒙设备。
 - `EntryAbility` 通过 `RNOHApp({ appKey: "zhihu--" })` 拉起 `ohos/index.tsx`。
+
+> ⚠️ HAP 编译与真机运行尚未在本机验证（需 JDK + 鸿蒙 SDK + 签名）。
+> 已验证到「JS bundle 与资源产物正确生成」为止。
 
 ---
 
@@ -150,6 +173,9 @@ cd harmony && hvigorw assembleHap --mode module -p product=default
 | 登录 Cookie 注入 | 🟢 可用 | `reactNativeCookies` 垫片（KV Cookie Jar）+ 沿用现有 zse96 签名逻辑 |
 | 毛玻璃/渐变 | 🟢 可用 | `BlurView` 降级半透明；`LinearGradient` 用 SVG 实现 |
 | MD5 / SHA-256 | 🟢 已验证 | `cryptoImpl.ts` 纯 JS 实现；对照 Node `crypto`，21 组输入（含中文、emoji、55/56/57/63/64/119/120 字节等分组边界）× 2 种算法 **42/42 全部一致** |
+| JS bundle 产物 | 🟢 已跑通 | `scripts/build-ohos-bundle.js` 实测生成 **3.76 MB / 2006 个模块** + **30 个资源**，输出到 `rawfile/` |
+| HAP 编译 / 真机 | ⚪ 未验证 | 需 JDK17 + 鸿蒙 SDK + 签名，本机不具备；已验证到「bundle 与资源产物正确」为止 |
+| 图标字体 (Ionicons) | 🟡 降级 | 走 `expo-font` → `expo-modules-core` 原生桥；OHOS 已用垫片兜底（字体文件已随资源拷贝），字形渲染需接入原生字体加载后确认 |
 
 详细模块映射见 **EXPO_OHOS_MAPPING.md**。
 
