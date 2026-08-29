@@ -152,3 +152,23 @@ cd harmony && hvigorw assembleHap --mode module -p product=default
 | MD5 / SHA-256 | 🟢 已验证 | `cryptoImpl.ts` 纯 JS 实现；对照 Node `crypto`，21 组输入（含中文、emoji、55/56/57/63/64/119/120 字节等分组边界）× 2 种算法 **42/42 全部一致** |
 
 详细模块映射见 **EXPO_OHOS_MAPPING.md**。
+
+---
+
+## 6. 自检脚本
+
+每次改动垫片或别名层后建议运行（只读，不改动任何文件）：
+
+```bash
+node scripts/verify-ohos.js
+```
+
+它做三件事（当前 **143 项检查全部通过**，覆盖 130 个源码文件）：
+
+- **A. 垫片 API 契约审计**：逐个比对「垫片导出的符号」与「源码里实际调用的 API」，
+  提前发现类似「`CookieManager.get()` 少 `name` 字段导致登录静默失败」的契约错配。
+- **B. Metro 别名层校验**：别名目标文件是否真实存在、`@/*` 路径别名能否解析、
+  源码里出现的每个平台模块是否都被覆盖（垫片或已声明的 npm 包）。
+- **C. 关键垫片行为测试**：MD5/SHA-256 对照 Node 原生 `crypto` 逐例比对（含中文、
+  emoji、55/56/57/63/64/119/120 字节等分组边界）；CookieManager 复刻
+  `app/login/index.tsx` 的真实合并流程，验证 `z_c0` / `d_c0` 能被正确检出。
