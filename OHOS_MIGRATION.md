@@ -20,9 +20,14 @@
 - **不产出安卓 APK**：NEXT 是纯 ArkTS 运行时，构建目标 `runtimeOS: "HarmonyOS"`，
   产物为 HAP/APP，由 RNOH 的 ArkTS 宿主工程承载 RN JS 运行时。
 
-技术核心：**Metro 模块别名（alias）重定向** —— 在 OHOS 构建时，把业务代码里对
-`expo-*` / 部分 RN 第三方库的 import 重定向到 `platform/ohos/shims/*` 下的鸿蒙垫片。
-因此 `app/`、`components/` 等源码 **逐字节不变**，与上游 rebase 时几乎零冲突。
+技术核心：**Metro `resolver.resolveRequest` 别名层** —— 在 OHOS 构建时（`HMOS_BUILD=1`），
+把业务代码里对 `expo-*` / 部分 RN 第三方库的 import 重定向到 `platform/ohos/shims/*` 下的鸿蒙垫片，
+同时解析 tsconfig 的 `@/*` 路径别名。因此 `app/`、`components/` 等源码 **逐字节不变**，
+与上游 rebase 时几乎零冲突。
+
+> 为何不用 `resolver.extraNodeModules`：它只能按「包名」整体替换，无法处理
+> `expo-file-system/legacy`、`expo-router/entry` 这类**带子路径**的模块名；
+> `resolveRequest` 接收完整请求名，可精确匹配子路径与自定义前缀。
 
 ---
 
@@ -138,11 +143,12 @@ cd harmony && hvigorw assembleHap --mode module -p product=default
 
 | 项目 | 状态 | 说明 |
 |------|------|------|
-| 路由表完整性 | 🟡 部分 | `ohos/routeRegistry.ts` 已注册主流程路由；其余页面按同模式追加即可 |
-| 底部 Tab | 🟢 可用 | `ohos/App.tsx` 用 `@react-navigation/bottom-tabs` 重建 `(tabs)` |
+| 路由表完整性 | 🟢 完成 | `ohos/routeRegistry.ts` 已覆盖 `app/` 下全部可导航路由（含 `comments/replies/[id]`、`question/[id]/answer/[answerId]`、`question/write/[id]`、`modal`） |
+| 底部 Tab | 🟢 可用 | `(tabs)` 直接挂载 `app/(tabs)/index`：其内部的 PagerView + 自定义底部栏已自管 Tab，因此**不再**包一层 BottomTabNavigator（否则会出现两套 Tab 栏） |
 | 图片保存到相册 | 🟡 降级 | `expo-media-library` 垫片返回未授权 → 自动走「系统分享」 |
-| 本地去重/曝光 | 🟡 依赖 | `expo-sqlite` 委托 `@react-native-ohos/sqlite-storage`，需安装该包 |
-| 登录 Cookie 注入 | 🟢 可用 | `reactNativeCookies` 垫片 + 沿用现有 zse96 签名逻辑 |
+| 本地去重/曝光 | 🟡 依赖 | `expo-sqlite` 垫片委托 `@react-native-ohos/sqlite-storage`；该包未发布，缺失时明确报错，仅影响非核心功能 |
+| 登录 Cookie 注入 | 🟢 可用 | `reactNativeCookies` 垫片（KV Cookie Jar）+ 沿用现有 zse96 签名逻辑 |
 | 毛玻璃/渐变 | 🟢 可用 | `BlurView` 降级半透明；`LinearGradient` 用 SVG 实现 |
+| MD5 / SHA-256 | 🟢 已验证 | `cryptoImpl.ts` 纯 JS 实现；对照 Node `crypto`，21 组输入（含中文、emoji、55/56/57/63/64/119/120 字节等分组边界）× 2 种算法 **42/42 全部一致** |
 
 详细模块映射见 **EXPO_OHOS_MAPPING.md**。

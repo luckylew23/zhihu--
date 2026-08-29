@@ -29,7 +29,9 @@ export async function digestStringAsync(
   data: string,
   options?: { encoding?: CryptoEncoding },
 ): Promise<string> {
-  const algo = typeof algorithm === 'string' ? algorithm : algorithm.valueOf();
+  // CryptoDigestAlgorithm 是字符串枚举，运行时值本身就是 'MD5'/'SHA-256' 等，
+  // 直接 String() 归一即可（不能用 .valueOf()，TS 会把 else 分支收窄为 never）。
+  const algo = String(algorithm);
   const hex = digest(algo, data);
   if (options?.encoding === CryptoEncoding.BASE64) return toBase64(hex);
   return hex;

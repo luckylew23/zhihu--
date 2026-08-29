@@ -29,6 +29,11 @@ function rotl(x: number, c: number): number {
   return (x << c) | (x >>> (32 - c));
 }
 
+// SHA-256 使用右旋（ROTR），MD5 使用左旋（ROTL）；两者不可混用。
+function rotr(x: number, c: number): number {
+  return (x >>> c) | (x << (32 - c));
+}
+
 function md5(bytes: number[]): string {
   const s = [
     7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9,
@@ -124,8 +129,15 @@ function sha256(bytes: number[]): string {
   const origLen = msg.length;
   msg.push(0x80);
   while (msg.length % 64 !== 56) msg.push(0);
+  // 注意：JS 的位移运算对移位量取模 32（x >>> 56 === x >>> 24），
+  // 因此必须拆分高低 32 位分别取字节，不能直接 `(bits >>> (i * 8))`。
   const bits = origLen * 8;
-  for (let i = 7; i >= 0; i--) msg.push(((bits >>> (i * 8)) & 0xff) >>> 0);
+  const bitsHi = Math.floor(bits / 0x100000000);
+  const bitsLo = bits >>> 0;
+  msg.push(
+    (bitsHi >>> 24) & 0xff, (bitsHi >>> 16) & 0xff, (bitsHi >>> 8) & 0xff, bitsHi & 0xff,
+    (bitsLo >>> 24) & 0xff, (bitsLo >>> 16) & 0xff, (bitsLo >>> 8) & 0xff, bitsLo & 0xff,
+  );
 
   const w = new Int32Array(64);
   for (let i = 0; i < msg.length; i += 64) {
@@ -137,16 +149,16 @@ function sha256(bytes: number[]): string {
         msg[i + j * 4 + 3];
     }
     for (let j = 16; j < 64; j++) {
-      const s0 = rotl(w[j - 15], 7) ^ rotl(w[j - 15], 18) ^ (w[j - 15] >>> 3);
-      const s1 = rotl(w[j - 2], 17) ^ rotl(w[j - 2], 19) ^ (w[j - 2] >>> 10);
+      const s0 = rotr(w[j - 15], 7) ^ rotr(w[j - 15], 18) ^ (w[j - 15] >>> 3);
+      const s1 = rotr(w[j - 2], 17) ^ rotr(w[j - 2], 19) ^ (w[j - 2] >>> 10);
       w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0;
     }
     let a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], h1 = h[7];
     for (let j = 0; j < 64; j++) {
-      const S1 = rotl(e, 6) ^ rotl(e, 11) ^ rotl(e, 25);
+      const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
       const ch = (e & f) ^ (~e & g);
       const t1 = (h1 + S1 + ch + K[j] + w[j]) | 0;
-      const S0 = rotl(a, 2) ^ rotl(a, 13) ^ rotl(a, 22);
+      const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
       const maj = (a & b) ^ (a & c) ^ (b & c);
       const t2 = (S0 + maj) | 0;
       h1 = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
@@ -166,8 +178,9 @@ export function digest(algorithm: string, data: string): string {
     case 'SHA-256':
       return sha256(bytes);
     case 'SHA-1':
-      // SHA-1 简化实现（本应用未使用，预留）
-      return data;
+      // 未实现：切勿返回 data 充当摘要（会产生看似正常的错误结果）。
+      // 本项目 zse96 签名仅使用 MD5；若后续需要 SHA-1，请补齐实现后再放开。
+      throw new Error('OHOS crypto shim 尚未实现 SHA-1');
     default:
       throw new Error(`OHOS crypto shim 暂不支持算法: ${algorithm}`);
   }
