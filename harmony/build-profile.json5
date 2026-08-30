@@ -1,19 +1,10 @@
 {
   "app": {
     "signingConfigs": [],
-    "buildOption": {
-      "sourceRoots": [
-        "./ohos",
-        "./platform/ohos/shims"
-      ],
-      "rnoh": {
-        "jsBundleFile": "./entry/src/main/resources/rawfile/index.harmony.bundle",
-        "codeCacheDir": "./codecache",
-        "assetDest": "./entry/src/main/resources/rawfile",
-        "entryRoot": "./ohos",
-        "entryFileName": "index"
-      }
-    },
+    // 说明：JS bundle 不由 hvigor 产出，而是 scripts/build-ohos-bundle.js（Metro）
+    // 预先生成到 entry/src/main/resources/rawfile/bundle.harmony.js，
+    // 由 pages/index.ets 的 ResourceJSBundleProvider 在运行时加载。
+    // 因此这里不需要（也不能有）旧 RNOH 插件的 app.buildOption.rnoh / sourceRoots 配置。
     "products": [
       {
         "name": "default",
@@ -38,7 +29,7 @@
       "name": "entry",
       "srcPath": "./entry",
       "targets": [
-        { "name": "default", "applyTo": "default" }
+        { "name": "default", "applyToProducts": ["default"] }
       ]
     }
   ]
