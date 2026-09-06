@@ -1,12 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   LayoutAnimation,
-  PanResponder,
   Platform,
-  Pressable,
   View as RNView,
   ScrollView,
   StyleSheet,
@@ -14,12 +11,24 @@ import {
   TextInput,
   UIManager,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Reanimated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BouncyButton } from '@/components/BouncyButton';
 import { Section, SettingItem } from '@/components/SettingItem';
 import { Text, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { designTokens } from '@/constants/designTokens';
+import {
+  READING_BACKGROUND_OPTIONS,
+  SURFACE_STYLE_OPTIONS,
+  TEXT_CONTRAST_OPTIONS,
+} from '@/constants/theme';
 import { type TabKey, useSettingsStore } from '@/store/useSettingsStore';
 
 // 开启 Android 下的 LayoutAnimation
@@ -35,18 +44,7 @@ export interface ColorPreset {
   value: string;
 }
 
-const PRESET_COLORS: ColorPreset[] = [
-  { name: '知乎蓝', value: '#0084ff' },
-  { name: '极客靛', value: '#6366f1' },
-  { name: '薄荷青', value: '#00a896' },
-  { name: '翡翠绿', value: '#10b981' },
-  { name: '落日橙', value: '#f97316' },
-  { name: '樱花粉', value: '#ec4899' },
-  { name: '蜜桃粉', value: '#ff758f' },
-  { name: '玫瑰红', value: '#f43f5e' },
-  { name: '紫罗兰', value: '#8b5cf6' },
-  { name: '静谧灰', value: '#64748b' },
-];
+const PRESET_COLORS: ColorPreset[] = designTokens.primaryPresets;
 
 export default function AppearanceSettings() {
   const insets = useSafeAreaInsets();
@@ -55,11 +53,15 @@ export default function AppearanceSettings() {
     fontSizeScale,
     lineHeightScale,
     primaryColor,
+    readingBackground,
+    textContrast,
+    surfaceStyle,
     visibleTabs,
     defaultTab,
     useWebView,
     enablePrivateMessaging,
     enableBrowseHistory,
+    enableHapticFeedback,
     pressOpacity,
     pressScale,
     androidFeedbackType,
@@ -81,6 +83,7 @@ export default function AppearanceSettings() {
   };
 
   const tintColor = useThemeColor({}, 'primary');
+  const canvasColor = useThemeColor({}, 'background');
   const isDark = colorScheme === 'dark';
 
   const toggleTab = (tab: TabKey) => {
@@ -104,7 +107,9 @@ export default function AppearanceSettings() {
     <RNView
       style={[
         styles.container,
-        { backgroundColor: isDark ? '#000000' : '#F2F2F6' },
+        {
+          backgroundColor: canvasColor,
+        },
       ]}
     >
       <Stack.Screen
@@ -125,7 +130,7 @@ export default function AppearanceSettings() {
             colorScheme={colorScheme}
           >
             <View style={styles.row}>
-              <Pressable
+              <BouncyButton
                 onPress={() =>
                   updateSettings({
                     fontSizeScale: Math.max(0.8, fontSizeScale - 0.1),
@@ -141,9 +146,9 @@ export default function AppearanceSettings() {
                   size={18}
                   color={Colors[colorScheme].text}
                 />
-              </Pressable>
+              </BouncyButton>
               <Text style={styles.valueText}>{fontSizeScale.toFixed(1)}x</Text>
-              <Pressable
+              <BouncyButton
                 onPress={() =>
                   updateSettings({
                     fontSizeScale: Math.min(1.5, fontSizeScale + 0.1),
@@ -159,7 +164,7 @@ export default function AppearanceSettings() {
                   size={18}
                   color={Colors[colorScheme].text}
                 />
-              </Pressable>
+              </BouncyButton>
             </View>
           </SettingItem>
 
@@ -169,7 +174,7 @@ export default function AppearanceSettings() {
             colorScheme={colorScheme}
           >
             <View style={styles.row}>
-              <Pressable
+              <BouncyButton
                 onPress={() =>
                   updateSettings({
                     lineHeightScale: Math.max(1.0, lineHeightScale - 0.1),
@@ -185,11 +190,11 @@ export default function AppearanceSettings() {
                   size={18}
                   color={Colors[colorScheme].text}
                 />
-              </Pressable>
+              </BouncyButton>
               <Text style={styles.valueText}>
                 {lineHeightScale.toFixed(1)}x
               </Text>
-              <Pressable
+              <BouncyButton
                 onPress={() =>
                   updateSettings({
                     lineHeightScale: Math.min(2.5, lineHeightScale + 0.1),
@@ -205,7 +210,7 @@ export default function AppearanceSettings() {
                   size={18}
                   color={Colors[colorScheme].text}
                 />
-              </Pressable>
+              </BouncyButton>
             </View>
           </SettingItem>
         </Section>
@@ -216,7 +221,7 @@ export default function AppearanceSettings() {
             {PRESET_COLORS.map((preset) => {
               const isSelected = primaryColor === preset.value;
               return (
-                <Pressable
+                <BouncyButton
                   key={preset.value}
                   onPress={() => updateSettings({ primaryColor: preset.value })}
                   style={[
@@ -239,18 +244,20 @@ export default function AppearanceSettings() {
                       style={{ marginLeft: 2 }}
                     />
                   )}
-                </Pressable>
+                </BouncyButton>
               );
             })}
-            <Pressable
-              onPress={() => updateSettings({ primaryColor: '#0084ff' })}
+            <BouncyButton
+              onPress={() =>
+                updateSettings({ primaryColor: Colors.light.primary })
+              }
               style={[
                 styles.colorChip,
                 {
                   backgroundColor: Colors[colorScheme].backgroundTertiary,
                   borderColor:
-                    primaryColor === '#0084ff' || !primaryColor
-                      ? '#0084ff'
+                    primaryColor === Colors.light.primary || !primaryColor
+                      ? Colors.light.primary
                       : 'transparent',
                 },
               ]}
@@ -268,7 +275,7 @@ export default function AppearanceSettings() {
               >
                 重置
               </Text>
-            </Pressable>
+            </BouncyButton>
           </RNView>
 
           <SettingItem
@@ -293,8 +300,140 @@ export default function AppearanceSettings() {
           )}
         </Section>
 
-        {/* 3. 按压反馈 */}
+        {/* 3. 阅读体验 */}
+        <Section title="阅读体验" colorScheme={colorScheme}>
+          <SettingItem
+            label="阅读背景"
+            icon="color-fill-outline"
+            colorScheme={colorScheme}
+          >
+            <RNView style={styles.optionRow}>
+              {READING_BACKGROUND_OPTIONS.map((option) => {
+                const isSelected = readingBackground === option.value;
+                return (
+                  <BouncyButton
+                    key={option.value}
+                    onPress={() =>
+                      updateSettings({ readingBackground: option.value })
+                    }
+                    style={[
+                      styles.optionChip,
+                      {
+                        backgroundColor: Colors[colorScheme].backgroundTertiary,
+                      },
+                      isSelected && { backgroundColor: tintColor },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.optionChipText,
+                        isSelected && {
+                          color: Colors[colorScheme].textInverse,
+                          fontWeight: 'bold',
+                        },
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </BouncyButton>
+                );
+              })}
+            </RNView>
+          </SettingItem>
+          <SettingItem
+            label="文字对比度"
+            icon="contrast-outline"
+            colorScheme={colorScheme}
+          >
+            <RNView style={styles.optionRow}>
+              {TEXT_CONTRAST_OPTIONS.map((option) => {
+                const isSelected = textContrast === option.value;
+                return (
+                  <BouncyButton
+                    key={option.value}
+                    onPress={() =>
+                      updateSettings({ textContrast: option.value })
+                    }
+                    style={[
+                      styles.optionChip,
+                      {
+                        backgroundColor: Colors[colorScheme].backgroundTertiary,
+                      },
+                      isSelected && { backgroundColor: tintColor },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.optionChipText,
+                        isSelected && {
+                          color: Colors[colorScheme].textInverse,
+                          fontWeight: 'bold',
+                        },
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </BouncyButton>
+                );
+              })}
+            </RNView>
+          </SettingItem>
+          <SettingItem
+            label="表面层次"
+            icon="layers-outline"
+            colorScheme={colorScheme}
+          >
+            <RNView style={styles.optionRow}>
+              {SURFACE_STYLE_OPTIONS.map((option) => {
+                const isSelected = surfaceStyle === option.value;
+                return (
+                  <BouncyButton
+                    key={option.value}
+                    onPress={() =>
+                      updateSettings({ surfaceStyle: option.value })
+                    }
+                    style={[
+                      styles.optionChip,
+                      {
+                        backgroundColor: Colors[colorScheme].backgroundTertiary,
+                      },
+                      isSelected && { backgroundColor: tintColor },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.optionChipText,
+                        isSelected && {
+                          color: Colors[colorScheme].textInverse,
+                          fontWeight: 'bold',
+                        },
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </BouncyButton>
+                );
+              })}
+            </RNView>
+          </SettingItem>
+        </Section>
+
+        {/* 4. 按压反馈 */}
         <Section title="交互与反馈" colorScheme={colorScheme}>
+          <SettingItem
+            label="震动反馈"
+            icon="phone-portrait-outline"
+            colorScheme={colorScheme}
+          >
+            <Switch
+              value={enableHapticFeedback}
+              onValueChange={(val) =>
+                updateSettings({ enableHapticFeedback: val })
+              }
+              trackColor={{ true: tintColor }}
+            />
+          </SettingItem>
+
           {Platform.OS === 'android' && (
             <SettingItem
               label="反馈类型"
@@ -302,7 +441,7 @@ export default function AppearanceSettings() {
               colorScheme={colorScheme}
             >
               <View style={styles.row}>
-                <Pressable
+                <BouncyButton
                   onPress={() =>
                     updateSettings({ androidFeedbackType: 'ripple' })
                   }
@@ -321,15 +460,15 @@ export default function AppearanceSettings() {
                     style={[
                       styles.tabChipText,
                       androidFeedbackType === 'ripple' && {
-                        color: '#fff',
+                        color: Colors[colorScheme].textInverse,
                         fontWeight: 'bold',
                       },
                     ]}
                   >
                     水波纹
                   </Text>
-                </Pressable>
-                <Pressable
+                </BouncyButton>
+                <BouncyButton
                   onPress={() =>
                     updateSettings({ androidFeedbackType: 'scale-opacity' })
                   }
@@ -345,14 +484,14 @@ export default function AppearanceSettings() {
                     style={[
                       styles.tabChipText,
                       androidFeedbackType === 'scale-opacity' && {
-                        color: '#fff',
+                        color: Colors[colorScheme].textInverse,
                         fontWeight: 'bold',
                       },
                     ]}
                   >
                     缩放
                   </Text>
-                </Pressable>
+                </BouncyButton>
               </View>
             </SettingItem>
           )}
@@ -366,7 +505,7 @@ export default function AppearanceSettings() {
                 colorScheme={colorScheme}
               >
                 <View style={styles.row}>
-                  <Pressable
+                  <BouncyButton
                     onPress={() =>
                       updateSettings({
                         pressOpacity: Math.max(
@@ -387,11 +526,11 @@ export default function AppearanceSettings() {
                       size={18}
                       color={Colors[colorScheme].text}
                     />
-                  </Pressable>
+                  </BouncyButton>
                   <Text style={styles.valueText}>
                     {pressOpacity.toFixed(2)}
                   </Text>
-                  <Pressable
+                  <BouncyButton
                     onPress={() =>
                       updateSettings({
                         pressOpacity: Math.min(
@@ -412,7 +551,7 @@ export default function AppearanceSettings() {
                       size={18}
                       color={Colors[colorScheme].text}
                     />
-                  </Pressable>
+                  </BouncyButton>
                 </View>
               </SettingItem>
               <SettingItem
@@ -421,7 +560,7 @@ export default function AppearanceSettings() {
                 colorScheme={colorScheme}
               >
                 <View style={styles.row}>
-                  <Pressable
+                  <BouncyButton
                     onPress={() =>
                       updateSettings({
                         pressScale: Math.max(
@@ -442,9 +581,9 @@ export default function AppearanceSettings() {
                       size={18}
                       color={Colors[colorScheme].text}
                     />
-                  </Pressable>
+                  </BouncyButton>
                   <Text style={styles.valueText}>{pressScale.toFixed(2)}</Text>
-                  <Pressable
+                  <BouncyButton
                     onPress={() =>
                       updateSettings({
                         pressScale: Math.min(
@@ -465,7 +604,7 @@ export default function AppearanceSettings() {
                       size={18}
                       color={Colors[colorScheme].text}
                     />
-                  </Pressable>
+                  </BouncyButton>
                 </View>
               </SettingItem>
             </>
@@ -476,13 +615,13 @@ export default function AppearanceSettings() {
             icon="play-circle-outline"
             colorScheme={colorScheme}
           >
-            <BouncyButton hapticFeedback={false} style={[styles.previewBtn]}>
+            <BouncyButton hapticFeedback style={[styles.previewBtn]}>
               <Text style={{ fontSize: 13, fontWeight: 'bold' }}>按我测试</Text>
             </BouncyButton>
           </SettingItem>
         </Section>
 
-        {/* 4. 栏目展示 */}
+        {/* 5. 栏目展示 */}
         <Section title="底部导航栏 (至少保留一个)" colorScheme={colorScheme}>
           {(Object.keys(TAB_LABELS) as TabKey[]).map((tab) => (
             <SettingItem
@@ -501,11 +640,11 @@ export default function AppearanceSettings() {
           ))}
         </Section>
 
-        {/* 5. 默认落地页 */}
+        {/* 6. 默认落地页 */}
         <Section title="默认启动页" colorScheme={colorScheme}>
           <RNView style={styles.tabGrid}>
             {visibleTabs.map((tab) => (
-              <Pressable
+              <BouncyButton
                 key={tab}
                 onPress={() => updateSettings({ defaultTab: tab })}
                 style={[
@@ -517,17 +656,20 @@ export default function AppearanceSettings() {
                 <Text
                   style={[
                     styles.tabChipText,
-                    defaultTab === tab && { color: '#fff', fontWeight: 'bold' },
+                    defaultTab === tab && {
+                      color: Colors[colorScheme].textInverse,
+                      fontWeight: 'bold',
+                    },
                   ]}
                 >
                   {TAB_LABELS[tab]}
                 </Text>
-              </Pressable>
+              </BouncyButton>
             ))}
           </RNView>
         </Section>
 
-        {/* 6. 实验性功能 */}
+        {/* 7. 实验性功能 */}
         <Section title="实验性功能 (默认关闭)" colorScheme={colorScheme}>
           <SettingItem
             label="启用 WebView 渲染"
@@ -568,7 +710,7 @@ export default function AppearanceSettings() {
           </SettingItem>
         </Section>
 
-        <Pressable
+        <BouncyButton
           onPress={resetSettings}
           style={[
             styles.resetBtn,
@@ -588,7 +730,7 @@ export default function AppearanceSettings() {
           >
             恢复默认设置
           </Text>
-        </Pressable>
+        </BouncyButton>
       </ScrollView>
     </RNView>
   );
@@ -685,98 +827,111 @@ function HslSlider({
   onComplete,
 }: any) {
   const [trackWidth, setTrackWidth] = useState(0);
-  const viewRef = useRef<any>(null);
-  const trackWidthRef = useRef(0);
-  const trackPageXRef = useRef(0);
   const onChangeRef = useRef(onChange);
   const onCompleteRef = useRef(onComplete);
-  const minRef = useRef(min);
-  const maxRef = useRef(max);
+  const trackWidthValue = useSharedValue(0);
+  const sliderRatio = useSharedValue(0);
 
   onChangeRef.current = onChange;
   onCompleteRef.current = onComplete;
-  minRef.current = min;
-  maxRef.current = max;
-
-  const measureTrack = () => {
-    viewRef.current?.measure(
-      (_x: number, _y: number, width: number, _h: number, pageX: number) => {
-        trackWidthRef.current = width;
-        trackPageXRef.current = pageX;
-        setTrackWidth(width);
-      },
-    );
-  };
-
-  const computeValue = (pageX: number) => {
-    const x = pageX - trackPageXRef.current;
-    const r = Math.max(0, Math.min(1, x / trackWidthRef.current));
-    return Math.round(minRef.current + r * (maxRef.current - minRef.current));
-  };
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) =>
-        onChangeRef.current(computeValue(evt.nativeEvent.pageX)),
-      onPanResponderMove: (evt) =>
-        onChangeRef.current(computeValue(evt.nativeEvent.pageX)),
-      onPanResponderRelease: (evt) => {
-        const finalVal = computeValue(evt.nativeEvent.pageX);
-        onChangeRef.current(finalVal);
-        onCompleteRef.current?.(finalVal);
-      },
-    }),
-  ).current;
 
   const ratio =
     trackWidth > 0 ? Math.max(0, Math.min(1, (value - min) / (max - min))) : 0;
 
+  useEffect(() => {
+    sliderRatio.value = ratio;
+  }, [ratio, sliderRatio]);
+
+  const notifyChange = useCallback((nextValue: number) => {
+    onChangeRef.current(nextValue);
+  }, []);
+  const notifyComplete = useCallback((nextValue: number) => {
+    onCompleteRef.current?.(nextValue);
+  }, []);
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-8, 8])
+        .failOffsetY([-12, 12])
+        .onBegin((event) => {
+          const nextRatio = Math.max(
+            0,
+            Math.min(1, event.x / Math.max(trackWidthValue.value, 1)),
+          );
+          sliderRatio.value = nextRatio;
+          runOnJS(notifyChange)(Math.round(min + nextRatio * (max - min)));
+        })
+        .onUpdate((event) => {
+          const nextRatio = Math.max(
+            0,
+            Math.min(1, event.x / Math.max(trackWidthValue.value, 1)),
+          );
+          sliderRatio.value = nextRatio;
+          runOnJS(notifyChange)(Math.round(min + nextRatio * (max - min)));
+        })
+        .onEnd((event) => {
+          const nextRatio = Math.max(
+            0,
+            Math.min(1, event.x / Math.max(trackWidthValue.value, 1)),
+          );
+          runOnJS(notifyComplete)(Math.round(min + nextRatio * (max - min)));
+        }),
+    [max, min, notifyChange, notifyComplete, sliderRatio, trackWidthValue],
+  );
+  const thumbAnimatedStyle = useAnimatedStyle(() => ({
+    left: sliderRatio.value * trackWidthValue.value - 10,
+  }));
+
   return (
-    <RNView
-      ref={viewRef}
-      style={{ height: 32, justifyContent: 'center' }}
-      onLayout={measureTrack}
-      {...panResponder.panHandlers}
-    >
+    <GestureDetector gesture={panGesture}>
       <RNView
-        style={{
-          height: 8,
-          borderRadius: 4,
-          overflow: 'hidden',
-          flexDirection: 'row',
+        style={{ height: 32, justifyContent: 'center' }}
+        onLayout={(event) => {
+          const width = event.nativeEvent.layout.width;
+          setTrackWidth(width);
+          trackWidthValue.value = width;
         }}
       >
-        {gradientColors.map((color: string, i: number) => (
-          <RNView
-            // biome-ignore lint/suspicious/noArrayIndexKey: gradientColors 是固定长度的预设色序,渲染的是无状态色块;色值本身会重复,不能当 key。
-            key={i}
-            style={{ flex: 1, backgroundColor: color }}
-          />
-        ))}
-      </RNView>
-      {trackWidth > 0 && (
         <RNView
-          pointerEvents="none"
           style={{
-            position: 'absolute',
-            left: ratio * trackWidth - 10,
-            width: 20,
-            height: 20,
-            borderRadius: 10,
-            backgroundColor: thumbColor,
-            borderWidth: 2,
-            borderColor: '#fff',
-            shadowColor: '#000',
-            shadowOpacity: 0.2,
-            shadowRadius: 3,
-            shadowOffset: { width: 0, height: 1 },
-            elevation: 3,
+            height: 8,
+            borderRadius: 4,
+            overflow: 'hidden',
+            flexDirection: 'row',
           }}
-        />
-      )}
-    </RNView>
+        >
+          {gradientColors.map((color: string, i: number) => (
+            <RNView
+              // biome-ignore lint/suspicious/noArrayIndexKey: gradientColors 是固定长度的预设色序,渲染的是无状态色块;色值本身会重复,不能当 key。
+              key={i}
+              style={{ flex: 1, backgroundColor: color }}
+            />
+          ))}
+        </RNView>
+        {trackWidth > 0 && (
+          <Reanimated.View
+            pointerEvents="none"
+            style={[
+              {
+                position: 'absolute',
+                width: 20,
+                height: 20,
+                borderRadius: 10,
+                backgroundColor: thumbColor,
+                borderWidth: 2,
+                borderColor: Colors.light.textInverse,
+                shadowColor: Colors.light.shadow,
+                shadowOpacity: 0.2,
+                shadowRadius: 3,
+                shadowOffset: { width: 0, height: 1 },
+                elevation: 3,
+              },
+              thumbAnimatedStyle,
+            ]}
+          />
+        )}
+      </RNView>
+    </GestureDetector>
   );
 }
 
@@ -785,15 +940,21 @@ function ColorPickerSection({ primaryColor, onColorChange }: any) {
   const textColor = Colors[colorScheme].text;
   const borderColor = Colors[colorScheme].border;
 
-  const [hsl, setHsl] = useState(() => hexToHsl(primaryColor || '#0084ff'));
-  const [hexText, setHexText] = useState(primaryColor || '#0084ff');
+  const [hsl, setHsl] = useState(() =>
+    hexToHsl(primaryColor || Colors.light.primary),
+  );
+  const [hexText, setHexText] = useState(primaryColor || Colors.light.primary);
 
   useEffect(() => {
-    const target = primaryColor || '#0084ff';
+    const target = primaryColor || Colors.light.primary;
     setHexText(target);
     const newHsl = hexToHsl(target);
-    const currentHex = hslToHex(hsl.h, hsl.s, hsl.l);
-    if (currentHex.toLowerCase() !== target.toLowerCase()) setHsl(newHsl);
+    setHsl((currentHsl) => {
+      const currentHex = hslToHex(currentHsl.h, currentHsl.s, currentHsl.l);
+      return currentHex.toLowerCase() === target.toLowerCase()
+        ? currentHsl
+        : newHsl;
+    });
   }, [primaryColor]);
 
   const applyHslLocal = (newHsl: any) => {
@@ -852,7 +1013,7 @@ function ColorPickerSection({ primaryColor, onColorChange }: any) {
             },
           ]}
           placeholder="#0084ff"
-          placeholderTextColor="#999"
+          placeholderTextColor={Colors[colorScheme].textTertiary}
           value={hexText}
           onChangeText={(val) => {
             const v = val.startsWith('#') ? val : val ? `#${val}` : '#';
@@ -863,7 +1024,8 @@ function ColorPickerSection({ primaryColor, onColorChange }: any) {
             }
           }}
           onBlur={() => {
-            if (hexText.length !== 7) setHexText(primaryColor || '#0084ff');
+            if (hexText.length !== 7)
+              setHexText(primaryColor || Colors.light.primary);
           }}
           maxLength={7}
           autoCapitalize="none"
@@ -961,6 +1123,22 @@ const styles = StyleSheet.create({
   },
   colorChipText: {
     fontSize: 14,
+  },
+  optionRow: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 6,
+    marginLeft: 12,
+  },
+  optionChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  optionChipText: {
+    fontSize: 13,
   },
   tabGrid: {
     flexDirection: 'row',

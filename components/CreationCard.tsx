@@ -14,7 +14,71 @@ import { BouncyButton } from './BouncyButton';
 import { LikeButton } from './LikeButton';
 import { type ShareContentType, ShareMenu } from './ShareMenu';
 
-export const CreationCard = React.forwardRef(
+type CreationType = 'answer' | 'article' | 'question' | 'pin' | 'video';
+
+interface CreationContentSegment {
+  type: string;
+  content?: string;
+  data_draft_title?: string;
+}
+
+interface CreationItem {
+  id: string | number;
+  type?: string;
+  title?: string;
+  titleString?: string;
+  content?: string | CreationContentSegment[];
+  excerpt?: string;
+  url?: string;
+  voteCount?: number;
+  voteup_count?: number;
+  voted?: number;
+  reaction_count?: number;
+  like_count?: number;
+  comment_count?: number;
+  favlists_count?: number;
+  favlistsCount?: number;
+  favorite_count?: number;
+  answer_count?: number;
+  follower_count?: number;
+  created?: number;
+  created_time?: number;
+  updated?: number;
+  updated_time?: number;
+  link_card_info?: Record<string, string>;
+  question?: {
+    id?: string | number;
+    title?: string;
+    titleString?: string;
+  };
+  author?: { name?: string; headline?: string };
+  relationship?: { voting?: number };
+  reaction?: {
+    statistics?: { favorites?: number; like_count?: number };
+  };
+}
+
+interface CreationCardProps {
+  item: CreationItem;
+  type: CreationType;
+  onPress?: () => void;
+  excerpt?: React.ReactNode;
+  isExpanded?: boolean;
+  onToggle?: (id: string, expanded: boolean) => void;
+  isCollapsedHighlighted?: boolean;
+}
+
+interface CreationCardHandle {
+  measureFooter: (
+    callback: (x: number, y: number, width: number, height: number) => void,
+  ) => void;
+  id: string;
+}
+
+export const CreationCard = React.forwardRef<
+  CreationCardHandle,
+  CreationCardProps
+>(
   (
     {
       item,
@@ -24,15 +88,7 @@ export const CreationCard = React.forwardRef(
       isExpanded,
       onToggle,
       isCollapsedHighlighted,
-    }: {
-      item: any;
-      type: 'answer' | 'article' | 'question' | 'pin' | 'video';
-      onPress?: () => void;
-      excerpt?: React.ReactNode;
-      isExpanded?: boolean;
-      onToggle?: (id: string, expanded: boolean) => void;
-      isCollapsedHighlighted?: boolean;
-    },
+    }: CreationCardProps,
     ref,
   ) => {
     const router = useRouter();
@@ -60,8 +116,8 @@ export const CreationCard = React.forwardRef(
     const { toggleCollect } = useCollectionAction();
 
     React.useImperativeHandle(ref, () => ({
-      measureFooter: (cb: any) => footerRef.current?.measureInWindow(cb),
-      id: item?.id?.toString() || Math.random().toString(),
+      measureFooter: (callback) => footerRef.current?.measureInWindow(callback),
+      id: item.id.toString(),
     }));
 
     const expanded = isExpanded !== undefined ? isExpanded : localExpanded;
@@ -79,8 +135,8 @@ export const CreationCard = React.forwardRef(
         return;
       }
       if (excerpt !== undefined) {
-        const cleanTitle = (val: any) => {
-          if (typeof val === 'string') return val;
+        const cleanTitle = (value: unknown) => {
+          if (typeof value === 'string') return value;
           if (item.titleString) return item.titleString;
           if (item.question?.titleString) return item.question.titleString;
           return '';
@@ -89,7 +145,7 @@ export const CreationCard = React.forwardRef(
           router.push({
             pathname: '/video/[id]',
             params: { id: item.id, title: cleanTitle(item.title) },
-          } as any);
+          });
         } else {
           router.push({
             pathname: `/${type}/[id]`,
@@ -98,7 +154,7 @@ export const CreationCard = React.forwardRef(
               title: cleanTitle(item.title || item.question?.title),
               questionId: item.question?.id,
             },
-          } as any);
+          });
         }
         return;
       }
@@ -112,10 +168,10 @@ export const CreationCard = React.forwardRef(
       if (!item) return '';
       if (type === 'pin' && Array.isArray(item.content)) {
         return item.content
-          .map((c: any) => {
-            if (c.type === 'text') return c.content;
-            if (c.type === 'link_card')
-              return `[链接: ${c.data_draft_title || '查看详情'}]`;
+          .map((segment) => {
+            if (segment.type === 'text') return segment.content;
+            if (segment.type === 'link_card')
+              return `[链接: ${segment.data_draft_title || '查看详情'}]`;
             return '';
           })
           .join('\n')
@@ -135,8 +191,8 @@ export const CreationCard = React.forwardRef(
       if (type === 'pin') {
         if (Array.isArray(item.content)) {
           return item.content
-            .filter((c: any) => c.type === 'text')
-            .map((c: any) => c.content)
+            .filter((segment) => segment.type === 'text')
+            .map((segment) => segment.content)
             .join('')
             .replace(/<[^>]+>/g, '')
             .substring(0, 100);
@@ -167,8 +223,10 @@ export const CreationCard = React.forwardRef(
         (typeof item.content === 'string' &&
           (item.content.includes('<img') || item.content.includes('<figure'))));
 
-    const displayTypeForShare =
-      type === 'answer' ? 'answer' : type === 'article' ? 'article' : 'pin';
+    const displayTypeForShare: ShareContentType = type;
+    const timestamp =
+      item.updated_time ?? item.updated ?? item.created_time ?? item.created;
+    const shareExcerpt = getExcerpt();
 
     return (
       <BouncyButton
@@ -188,7 +246,7 @@ export const CreationCard = React.forwardRef(
             elevation: 5,
           },
         ]}
-        className="p-4 mb-2.5 shadow-sm"
+        className="p-4 mb-2.5"
       >
         <BouncyButton
           onPress={() => {
@@ -228,13 +286,17 @@ export const CreationCard = React.forwardRef(
                     ? item.content
                     : undefined
                 }
+                linkCardInfo={item.link_card_info}
                 useNative={true}
               />
-              <Pressable
+              <BouncyButton
                 onPress={() => setExpanded(false)}
                 className="mt-3 py-2.5 flex-row items-center justify-center border-t border-gray-100 dark:border-gray-800"
               >
-                <Text className="text-sm text-primary font-bold mr-1">
+                <Text
+                  className="text-sm font-bold mr-1"
+                  style={{ color: primaryColor }}
+                >
                   收起
                   {type === 'answer'
                     ? '回答'
@@ -243,7 +305,7 @@ export const CreationCard = React.forwardRef(
                       : '想法'}
                 </Text>
                 <Ionicons name="chevron-up" size={14} color={primaryColor} />
-              </Pressable>
+              </BouncyButton>
             </View>
           ) : type === 'answer' || type === 'article' || type === 'pin' ? (
             isLongContent ? (
@@ -314,6 +376,7 @@ export const CreationCard = React.forwardRef(
                       ? item.content
                       : undefined
                   }
+                  linkCardInfo={item.link_card_info}
                   useNative={true}
                 />
               </View>
@@ -362,7 +425,7 @@ export const CreationCard = React.forwardRef(
                 }
                 variant="ghost"
               />
-              <Pressable
+              <BouncyButton
                 onPress={() => {
                   const commentType =
                     type === 'article'
@@ -374,34 +437,42 @@ export const CreationCard = React.forwardRef(
                     `/comments/${item.id}?type=${commentType}&count=${item.comment_count || 0}`,
                   );
                 }}
-                className="flex-row items-center ml-5 bg-transparent py-1"
+                className="flex-row items-center justify-center ml-3 p-2 rounded-full bg-transparent"
               >
-                <Ionicons name="chatbubble-outline" size={16} color="#888" />
+                <Ionicons
+                  name="chatbubble-outline"
+                  size={16}
+                  color={Colors[colorScheme].iconMuted}
+                />
                 <Text className="ml-1 text-xs font-semibold">
-                  {item.comment_count > 0 ? item.comment_count : '0'}
+                  {(item.comment_count ?? 0) > 0 ? item.comment_count : '0'}
                 </Text>
-              </Pressable>
+              </BouncyButton>
               {isCollectable && (
-                <Pressable
+                <BouncyButton
                   onPress={() => toggleCollect(item.id, type, isCollected)}
-                  className="flex-row items-center ml-5 bg-transparent py-1"
+                  className="flex-row items-center justify-center ml-3 p-2 rounded-full bg-transparent"
                 >
                   <Ionicons
                     name={isCollected ? 'star' : 'star-outline'}
                     size={16}
-                    color={isCollected ? warningColor : '#888'}
+                    color={
+                      isCollected ? warningColor : Colors[colorScheme].iconMuted
+                    }
                   />
                   {displayCount > 0 && (
                     <Text
                       className="ml-1 text-xs font-semibold"
                       style={{
-                        color: isCollected ? warningColor : '#888',
+                        color: isCollected
+                          ? warningColor
+                          : Colors[colorScheme].iconMuted,
                       }}
                     >
                       {displayCount}
                     </Text>
                   )}
-                </Pressable>
+                </BouncyButton>
               )}
             </View>
           ) : (
@@ -420,23 +491,17 @@ export const CreationCard = React.forwardRef(
               type="secondary"
               className="text-xs text-tertiary dark:text-tertiary-dark mr-3"
             >
-              {item.updated_time ||
-              item.updated ||
-              item.created_time ||
-              item.created
-                ? new Date(
-                    (item.updated_time ||
-                      item.updated ||
-                      item.created_time ||
-                      item.created) * 1000,
-                  ).toLocaleDateString()
-                : ''}
+              {timestamp ? new Date(timestamp * 1000).toLocaleDateString() : ''}
             </Text>
             <BouncyButton
               onPress={() => setMenuVisible(true)}
               className="p-1 -mr-1 bg-transparent"
             >
-              <Ionicons name="ellipsis-horizontal" size={18} color="#888" />
+              <Ionicons
+                name="ellipsis-horizontal"
+                size={18}
+                color={Colors[colorScheme].iconMuted}
+              />
             </BouncyButton>
           </View>
         </NativeView>
@@ -444,16 +509,16 @@ export const CreationCard = React.forwardRef(
         <ShareMenu
           visible={menuVisible}
           onClose={() => setMenuVisible(false)}
-          type={displayTypeForShare as ShareContentType}
-          data={
-            {
-              id: item.id,
-              title: getTitle(),
-              author: item.author?.name,
-              authorHeadline: item.author?.headline,
-              excerpt: getExcerpt(),
-            } as any
-          }
+          type={displayTypeForShare}
+          data={{
+            id: item.id,
+            title: getTitle(),
+            author: item.author?.name,
+            authorHeadline: item.author?.headline,
+            excerpt:
+              typeof shareExcerpt === 'string' ? shareExcerpt : undefined,
+            url: item.url,
+          }}
         />
       </BouncyButton>
     );

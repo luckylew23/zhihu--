@@ -12,10 +12,12 @@ import {
   TextInput,
 } from 'react-native';
 import { getSearchSuggest, searchContent } from '@/api/zhihu';
+import { BouncyButton } from '@/components/BouncyButton';
 import { FeedCard } from '@/components/FeedCard';
 import { Text, useThemeColor, View } from '@/components/Themed';
 import { UserCard } from '@/components/UserCard';
 import { useColorScheme } from '@/components/useColorScheme';
+import Colors from '@/constants/Colors';
 import { useSearchStore } from '@/store/useSearchStore';
 
 /** 转义正则元字符，避免用户输入（如 "C++"）构造出非法正则 */
@@ -37,7 +39,7 @@ export default function SearchScreen() {
 
   const tintColor = useThemeColor({}, 'primary');
   const backgroundColor = useThemeColor({}, 'background');
-  const surfaceColor = colorScheme === 'dark' ? '#1a1a1a' : '#f5f5f5';
+  const surfaceColor = Colors[colorScheme].backgroundTertiary;
   const textColor = useThemeColor({}, 'text');
   const borderColor = useThemeColor({}, 'border');
 
@@ -167,11 +169,11 @@ export default function SearchScreen() {
     if (!query) return null;
     const parts = text.split(new RegExp(`(${escapeRegExp(query)})`, 'gi'));
     return (
-      <Pressable
+      <BouncyButton
         className="flex-row items-center p-[15px]"
         style={{
           borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: '#eee',
+          borderBottomColor: Colors[colorScheme].border,
         }}
         onPress={() => {
           setQuery(item.query);
@@ -183,7 +185,7 @@ export default function SearchScreen() {
         <Ionicons
           name="search-outline"
           size={16}
-          color="#888"
+          color={Colors[colorScheme].iconMuted}
           style={{ marginRight: 15 }}
         />
         <Text className="text-base">
@@ -201,7 +203,7 @@ export default function SearchScreen() {
             ),
           )}
         </Text>
-      </Pressable>
+      </BouncyButton>
     );
   };
 
@@ -218,7 +220,7 @@ export default function SearchScreen() {
         { label: '综合', value: 'general' },
         { label: '用户', value: 'people' },
       ].map((tab) => (
-        <Pressable
+        <BouncyButton
           key={tab.value}
           onPress={() => setSearchType(tab.value)}
           className="py-3 mr-[25px]"
@@ -237,7 +239,7 @@ export default function SearchScreen() {
           >
             {tab.label}
           </Text>
-        </Pressable>
+        </BouncyButton>
       ))}
     </View>
   );
@@ -249,13 +251,13 @@ export default function SearchScreen() {
       {/* Header */}
       <View className="pt-[45px] pb-2.5 px-[5px]" style={{ backgroundColor }}>
         <View className="flex-row items-center">
-          <Pressable
+          <BouncyButton
             onPress={() => router.back()}
-            className="px-[5px]"
+            className="p-2 rounded-full"
             hitSlop={15}
           >
             <Ionicons name="chevron-back" size={28} color={textColor} />
-          </Pressable>
+          </BouncyButton>
           <Pressable
             onPress={() => inputRef.current?.focus()}
             className="flex-row items-center rounded-full px-3 h-9 flex-1"
@@ -264,7 +266,7 @@ export default function SearchScreen() {
             <Ionicons
               name="search"
               size={18}
-              color="#888"
+              color={Colors[colorScheme].iconMuted}
               style={{ marginRight: 8 }}
             />
             <TextInput
@@ -272,7 +274,7 @@ export default function SearchScreen() {
               className="flex-1 text-sm py-0"
               style={{ color: textColor }}
               placeholder="搜索知乎内容..."
-              placeholderTextColor="#999"
+              placeholderTextColor={Colors[colorScheme].textTertiary}
               value={query}
               onChangeText={(text) => {
                 setQuery(text);
@@ -283,7 +285,8 @@ export default function SearchScreen() {
               returnKeyType="search"
             />
             {query.length > 0 && (
-              <Pressable
+              <BouncyButton
+                className="p-1 rounded-full"
                 onPress={() => {
                   setQuery('');
                   setIsSearching(false);
@@ -291,20 +294,24 @@ export default function SearchScreen() {
                 }}
                 hitSlop={15}
               >
-                <Ionicons name="close-circle" size={18} color="#999" />
-              </Pressable>
+                <Ionicons
+                  name="close-circle"
+                  size={18}
+                  color={Colors[colorScheme].textTertiary}
+                />
+              </BouncyButton>
             )}
           </Pressable>
-          <Pressable
+          <BouncyButton
             onPress={() => {
               Keyboard.dismiss();
               handleSearch();
             }}
-            className="px-2.5"
+            className="px-2.5 py-2 rounded-full"
             hitSlop={15}
           >
             <Text style={{ color: tintColor, fontWeight: 'bold' }}>搜索</Text>
-          </Pressable>
+          </BouncyButton>
         </View>
       </View>
 
@@ -374,9 +381,17 @@ export default function SearchScreen() {
             <View>
               <View className="flex-row justify-between items-center mb-[15px]">
                 <Text className="text-base font-bold">搜索历史</Text>
-                <Pressable onPress={clearHistory} hitSlop={10}>
-                  <Ionicons name="trash-outline" size={18} color="#999" />
-                </Pressable>
+                <BouncyButton
+                  className="p-2 rounded-full"
+                  onPress={clearHistory}
+                  hitSlop={10}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={18}
+                    color={Colors[colorScheme].textTertiary}
+                  />
+                </BouncyButton>
               </View>
               <View className="flex-row flex-wrap">
                 {history.map((item) => (
@@ -385,24 +400,28 @@ export default function SearchScreen() {
                     className="flex-row items-center rounded-[15px] pl-3 pr-2 py-1.5 mr-2.5 mb-2.5"
                     style={{ backgroundColor: surfaceColor }}
                   >
-                    <Pressable
+                    <BouncyButton
                       onPress={() => {
                         setQuery(item);
                         addHistory(item);
                         setIsSearching(true);
                         Keyboard.dismiss();
                       }}
-                      className="mr-1"
+                      className="mr-1 px-1 py-0.5 rounded-full"
                     >
                       <Text className="text-sm">{item}</Text>
-                    </Pressable>
-                    <Pressable
+                    </BouncyButton>
+                    <BouncyButton
                       onPress={() => removeHistory(item)}
-                      className="p-0.5"
+                      className="p-0.5 rounded-full"
                       hitSlop={5}
                     >
-                      <Ionicons name="close" size={14} color="#999" />
-                    </Pressable>
+                      <Ionicons
+                        name="close"
+                        size={14}
+                        color={Colors[colorScheme].textTertiary}
+                      />
+                    </BouncyButton>
                   </View>
                 ))}
               </View>

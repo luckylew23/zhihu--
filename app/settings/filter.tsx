@@ -4,7 +4,6 @@ import { Stack } from 'expo-router';
 import { useMemo } from 'react';
 import {
   Alert,
-  Pressable,
   View as RNView,
   ScrollView,
   StyleSheet,
@@ -12,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { FeedItem } from '@/api/zhihu';
+import { BouncyButton } from '@/components/BouncyButton';
 import {
   Section,
   SettingItem,
@@ -126,7 +126,11 @@ export default function FilterSettings() {
     <RNView
       style={[
         styles.container,
-        { backgroundColor: isDark ? '#000000' : '#F2F2F6' },
+        {
+          backgroundColor: isDark
+            ? Colors.dark.background
+            : Colors.light.controlBackground,
+        },
       ]}
     >
       <Stack.Screen
@@ -145,7 +149,7 @@ export default function FilterSettings() {
             style={[
               styles.statsCard,
               {
-                backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+                backgroundColor: Colors[colorScheme].backgroundSecondary,
                 borderColor: warn ? Colors[colorScheme].warning : 'transparent',
               },
             ]}
@@ -157,7 +161,7 @@ export default function FilterSettings() {
             <RNView
               style={[
                 styles.statsBarTrack,
-                { backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA' },
+                { backgroundColor: Colors[colorScheme].controlBorder },
               ]}
             >
               <RNView
@@ -291,7 +295,7 @@ export default function FilterSettings() {
               >
                 <RNView style={s.row}>
                   {QUALITY_LEVELS.map((lvl, i) => (
-                    <Pressable
+                    <BouncyButton
                       key={lvl.key}
                       onPress={() =>
                         updateSettings({ filterQualityLevel: lvl.key })
@@ -312,14 +316,14 @@ export default function FilterSettings() {
                         style={[
                           s.tabChipText,
                           filterQualityLevel === lvl.key && {
-                            color: '#fff',
+                            color: Colors[colorScheme].textInverse,
                             fontWeight: 'bold',
                           },
                         ]}
                       >
                         {lvl.label}
                       </Text>
-                    </Pressable>
+                    </BouncyButton>
                   ))}
                 </RNView>
               </SettingItem>
@@ -357,7 +361,7 @@ export default function FilterSettings() {
                 colorScheme={colorScheme}
               >
                 <RNView style={s.row}>
-                  <Pressable
+                  <BouncyButton
                     onPress={() => updateSettings({ filterMode: 'collapse' })}
                     style={[
                       s.tabChip,
@@ -374,15 +378,15 @@ export default function FilterSettings() {
                       style={[
                         s.tabChipText,
                         filterMode === 'collapse' && {
-                          color: '#fff',
+                          color: Colors[colorScheme].textInverse,
                           fontWeight: 'bold',
                         },
                       ]}
                     >
                       折叠占位
                     </Text>
-                  </Pressable>
-                  <Pressable
+                  </BouncyButton>
+                  <BouncyButton
                     onPress={() => updateSettings({ filterMode: 'hide' })}
                     style={[
                       s.tabChip,
@@ -396,14 +400,14 @@ export default function FilterSettings() {
                       style={[
                         s.tabChipText,
                         filterMode === 'hide' && {
-                          color: '#fff',
+                          color: Colors[colorScheme].textInverse,
                           fontWeight: 'bold',
                         },
                       ]}
                     >
                       直接隐藏
                     </Text>
-                  </Pressable>
+                  </BouncyButton>
                 </RNView>
               </SettingItem>
               {filterMode === 'collapse' && (
@@ -445,7 +449,7 @@ export default function FilterSettings() {
             icon="trash-bin-outline"
             colorScheme={colorScheme}
           >
-            <Pressable
+            <BouncyButton
               onPress={() => {
                 Alert.alert(
                   '清除本地去重记录',
@@ -468,10 +472,10 @@ export default function FilterSettings() {
                   ],
                 );
               }}
-              className="px-3 py-1.5"
+              className="px-3 py-1.5 rounded-full"
             >
               <Text style={{ color: Colors[colorScheme].danger }}>清除</Text>
-            </Pressable>
+            </BouncyButton>
           </SettingItem>
         </Section>
       </ScrollView>

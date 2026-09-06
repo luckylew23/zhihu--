@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { ActivityIndicator, Pressable } from 'react-native';
+import { ActivityIndicator } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -9,6 +9,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { voteContent } from '@/api/zhihu/voters';
+import { colors } from '@/constants/designTokens';
+import { BouncyButton } from './BouncyButton';
 import { useThemeColor } from './Themed';
 import { useColorScheme } from './useColorScheme';
 
@@ -26,7 +28,7 @@ export const DownvoteButton = ({
   const [voted, setVoted] = useState(initialVoted);
   const [loading, setLoading] = useState(false);
   const scale = useSharedValue(1);
-  const _colorScheme = useColorScheme();
+  const colorScheme = useColorScheme();
   const tintColor = useThemeColor({}, 'primary');
 
   React.useEffect(() => {
@@ -62,18 +64,19 @@ export const DownvoteButton = ({
   };
 
   return (
-    <Pressable
+    <BouncyButton
       onPress={handlePress}
       disabled={loading}
       className={
         variant === 'default'
           ? 'w-9 h-9 rounded-lg justify-center items-center '
-          : 'flex-row items-center justify-center bg-transparent px-1'
+          : 'flex-row items-center justify-center bg-transparent p-2'
       }
       style={[
         variant === 'default' && {
           backgroundColor: isDownvoted ? tintColor : `${tintColor}1a`,
         },
+        variant === 'minimal' && { borderRadius: 99 },
         loading && { opacity: 0.7 },
       ]}
     >
@@ -84,7 +87,7 @@ export const DownvoteButton = ({
             isDownvoted || variant === 'minimal'
               ? tintColor
               : variant === 'default'
-                ? '#fff'
+                ? colors[colorScheme].textInverse
                 : tintColor
           }
         />
@@ -97,14 +100,14 @@ export const DownvoteButton = ({
               variant === 'minimal'
                 ? isDownvoted
                   ? tintColor
-                  : '#888'
+                  : colors[colorScheme].iconMuted
                 : isDownvoted
-                  ? '#fff'
+                  ? colors[colorScheme].textInverse
                   : tintColor
             }
           />
         </Animated.View>
       )}
-    </Pressable>
+    </BouncyButton>
   );
 };

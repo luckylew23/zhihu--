@@ -17,21 +17,24 @@ import React, {
 } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   RefreshControl,
   StyleSheet,
   useWindowDimensions,
 } from 'react-native';
-import PagerView from 'react-native-pager-view';
+import PagerView, {
+  type PagerViewOnPageScrollEvent,
+} from 'react-native-pager-view';
 import Animated, {
   Extrapolate,
   interpolate,
   useAnimatedStyle,
+  useEvent,
   useSharedValue,
   withRepeat,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import type { EdgeInsets } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 // 使用 @ 别名导入组件
@@ -60,7 +63,7 @@ import {
   feedExposureRepository,
 } from '@/storage/feedExposureRepository';
 import { useAuthStore } from '@/store/useAuthStore';
-import { type TabKey, useSettingsStore } from '@/store/useSettingsStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { supportsLocalFeedDedup } from '@/utils/feedDedup';
 import {
   applyFeedFilter,
@@ -80,8 +83,6 @@ import { refreshInfiniteQuery } from '@/utils/query';
 import ProfileScreen from './profile';
 import PublishScreen from './publish';
 
-const _tintColor = Colors.light.tint; // Fallback or use colorScheme logic inside component
-
 // 统一的所有可滑动的页面索引
 // 0: 关注, 1: 推荐, 2: 热榜, 3: 日报, 4: 发布, 5: 我的
 const TABS = [
@@ -94,7 +95,34 @@ const TABS = [
   'profile',
 ] as const;
 type TabType = (typeof TABS)[number];
+type FeedTabType = keyof typeof FEED_URLS;
 type FeedListItem = FeedItem | HotItem | CollapsedGroup;
+const AUTO_HIDE_NAV_TABS: readonly TabType[] = [
+  'following',
+  'recommend',
+  'hot',
+  'daily',
+];
+const AnimatedPagerView = Animated.createAnimatedComponent(PagerView);
+
+function isTabType(value: string): value is TabType {
+  return (TABS as readonly string[]).includes(value);
+}
+
+interface TabListHandle {
+  scrollToOffset: (args: { offset: number; animated?: boolean }) => void;
+  refresh?: () => void;
+}
+
+interface FeedListHandle extends TabListHandle {
+  refresh: () => void;
+}
+
+interface ScrollMotion {
+  direction: 'up' | 'down' | null;
+  directionStartOffset: number;
+  lastOffset: number;
+}
 
 // 隐藏模式下被过滤项不占行，一页内容可能所剩无几甚至为空——列表不足一屏时
 // 用户无法滚动，onEndReached 不会再触发，列表就此卡住。故在该模式下主动补页
@@ -117,18 +145,10 @@ export default function HomeScreen() {
 
   // 动态过滤 Tabs
   const currentTabs = useMemo(() => {
-    return [
-      'following',
-      'recommend',
-      'local',
-      'hot',
-      'daily',
-      'publish',
-      'profile',
-    ].filter((tab) => {
+    return TABS.filter((tab) => {
       if (tab === 'profile') return true;
-      return visibleTabs.includes(tab as any);
-    }) as TabType[];
+      return visibleTabs.includes(tab);
+    });
   }, [visibleTabs]);
 
   const homeTabs = useMemo(() => {
@@ -147,8 +167,8 @@ export default function HomeScreen() {
   // 计算初始页码
   const initialPageIndex = useMemo(() => {
     // 优先考虑 URL 参数中的 tab
-    if (params.tab) {
-      const idx = currentTabs.indexOf(params.tab as TabKey);
+    if (params.tab && isTabType(params.tab)) {
+      const idx = currentTabs.indexOf(params.tab);
       if (idx >= 0) return idx;
     }
     const idx = currentTabs.indexOf(defaultTab);
@@ -157,7 +177,17 @@ export default function HomeScreen() {
 
   // 核心状态：共享滚动位置
   const scrollX = useSharedValue(initialPageIndex);
+  const chromeVisibility = useSharedValue(1);
   const pagerRef = useRef<PagerView>(null);
+  const pageScrollHandler = useEvent<PagerViewOnPageScrollEvent>(
+    (event) => {
+      'worklet';
+      if (event.eventName.endsWith('onPageScroll')) {
+        scrollX.value = event.position + event.offset;
+      }
+    },
+    ['onPageScroll'],
+  );
   const { cookies } = useAuthStore();
 
   const tintColor = useThemeColor({}, 'primary');
@@ -193,8 +223,8 @@ export default function HomeScreen() {
 
   // 监听 params.tab 变化并切换页面
   useEffect(() => {
-    if (params.tab) {
-      const idx = currentTabs.indexOf(params.tab as TabKey);
+    if (params.tab && isTabType(params.tab)) {
+      const idx = currentTabs.indexOf(params.tab);
       if (idx >= 0 && idx !== currentPage) {
         pagerRef.current?.setPage(idx);
         setCurrentPage(idx);
@@ -206,16 +236,30 @@ export default function HomeScreen() {
   const [refreshingTabs, setRefreshingTabs] = useState<Record<number, boolean>>(
     {},
   );
-  const listRefs = useRef<any[]>([]);
+  const listRefs = useRef<Array<TabListHandle | null>>([]);
+  const scrollMotionRef = useRef<Record<number, ScrollMotion>>({});
+  const isChromeHiddenRef = useRef(false);
+
+  const setChromeHidden = useCallback(
+    (hidden: boolean) => {
+      if (isChromeHiddenRef.current === hidden) return;
+      isChromeHiddenRef.current = hidden;
+      chromeVisibility.value = withTiming(hidden ? 0 : 1, { duration: 180 });
+    },
+    [chromeVisibility],
+  );
 
   const handleRefreshStateChange = useCallback(
     (pageIndex: number, isRefreshing: boolean) => {
+      if (isRefreshing && pageIndex === currentPage) {
+        setChromeHidden(false);
+      }
       setRefreshingTabs((prev) => {
         if (prev[pageIndex] === isRefreshing) return prev;
         return { ...prev, [pageIndex]: isRefreshing };
       });
     },
-    [],
+    [currentPage, setChromeHidden],
   );
 
   const isCurrentRefreshing = refreshingTabs[currentPage] || false;
@@ -238,8 +282,45 @@ export default function HomeScreen() {
         if (currentlyScrolled === nextScrolled) return prev;
         return { ...prev, [pageIndex]: nextScrolled };
       });
+
+      const previousMotion = scrollMotionRef.current[pageIndex] ?? {
+        direction: null,
+        directionStartOffset: offset,
+        lastOffset: offset,
+      };
+      const delta = offset - previousMotion.lastOffset;
+      const direction =
+        delta > 1 ? 'down' : delta < -1 ? 'up' : previousMotion.direction;
+
+      if (direction !== previousMotion.direction) {
+        previousMotion.direction = direction;
+        previousMotion.directionStartOffset = offset;
+      }
+      previousMotion.lastOffset = offset;
+      scrollMotionRef.current[pageIndex] = previousMotion;
+
+      if (pageIndex !== currentPage) return;
+      const currentTab = currentTabs[pageIndex];
+      if (!currentTab || !AUTO_HIDE_NAV_TABS.includes(currentTab)) {
+        setChromeHidden(false);
+        return;
+      }
+
+      if (offset <= 24) {
+        setChromeHidden(false);
+        return;
+      }
+
+      const directionDistance = Math.abs(
+        offset - previousMotion.directionStartOffset,
+      );
+      if (direction === 'down' && offset > 80 && directionDistance >= 24) {
+        setChromeHidden(true);
+      } else if (direction === 'up' && directionDistance >= 16) {
+        setChromeHidden(false);
+      }
     },
-    [],
+    [currentPage, currentTabs, setChromeHidden],
   );
 
   const handleHomeTabPress = () => {
@@ -294,10 +375,33 @@ export default function HomeScreen() {
       [0, -100],
       Extrapolate.CLAMP,
     );
+    const scrollTranslateY = interpolate(
+      chromeVisibility.value,
+      [0, 1],
+      [-80, 0],
+      Extrapolate.CLAMP,
+    );
     return {
-      opacity,
+      opacity: opacity * chromeVisibility.value,
+      transform: [{ translateY: translateY + scrollTranslateY }],
+      pointerEvents:
+        scrollX.value > fadeStart + 0.5 || chromeVisibility.value < 0.5
+          ? 'none'
+          : 'auto',
+    };
+  });
+
+  const bottomNavAnimStyle = useAnimatedStyle(() => {
+    const translateY = interpolate(
+      chromeVisibility.value,
+      [0, 1],
+      [96, 0],
+      Extrapolate.CLAMP,
+    );
+    return {
+      opacity: chromeVisibility.value,
       transform: [{ translateY }],
-      pointerEvents: scrollX.value > fadeStart + 0.5 ? 'none' : 'auto',
+      pointerEvents: chromeVisibility.value < 0.5 ? 'none' : 'auto',
     };
   });
 
@@ -439,26 +543,25 @@ export default function HomeScreen() {
                   );
                 })}
             </View>
-            <Pressable
+            <BouncyButton
               onPress={() => router.push('/search')}
               style={styles.searchBtn}
             >
               <Ionicons name="search" size={22} color={textColor} />
-            </Pressable>
+            </BouncyButton>
           </View>
           {isCurrentRefreshing && <TopLoadingBar color={tintColor} />}
         </BlurView>
       </Animated.View>
 
-      <PagerView
+      <AnimatedPagerView
         key={`pager-${currentTabs.join('-')}`} // 强制重新渲染
         ref={pagerRef}
         style={styles.pager}
         initialPage={initialPageIndex}
-        onPageScroll={(e) => {
-          scrollX.value = e.nativeEvent.position + e.nativeEvent.offset;
-        }}
+        onPageScroll={pageScrollHandler}
         onPageSelected={(e) => {
+          setChromeHidden(false);
           setCurrentPage(e.nativeEvent.position);
         }}
       >
@@ -468,7 +571,9 @@ export default function HomeScreen() {
             <View key={tab} style={{ flex: 1, backgroundColor: 'transparent' }}>
               {!isVisited ? null : tab === 'daily' ? (
                 <DailyList
-                  ref={(el) => (listRefs.current[idx] = el)}
+                  ref={(element) => {
+                    listRefs.current[idx] = element;
+                  }}
                   insets={insets}
                   onScroll={(offset) => handleScrollUpdate(idx, offset)}
                   onRefreshStateChange={(isRefreshing) =>
@@ -478,23 +583,25 @@ export default function HomeScreen() {
               ) : tab === 'publish' ? (
                 <PublishScreen />
               ) : tab === 'profile' ? (
-                <ProfileScreen />
+                <ProfileScreen isActive={isFocused && currentPage === idx} />
               ) : !cookies && tab === 'following' ? (
                 <View style={styles.loginPrompt}>
                   <Text style={styles.loginText} type="secondary">
                     登录后才能看此栏目哦
                   </Text>
-                  <Pressable
+                  <BouncyButton
                     style={[styles.loginBtn, { backgroundColor: tintColor }]}
-                    onPress={() => router.push('/login' as any)}
+                    onPress={() => router.push('/login')}
                   >
                     <Text style={styles.loginBtnText}>去登录</Text>
-                  </Pressable>
+                  </BouncyButton>
                 </View>
               ) : (
                 <FeedList
-                  ref={(el) => (listRefs.current[idx] = el)}
-                  tab={tab as any}
+                  ref={(element) => {
+                    listRefs.current[idx] = element;
+                  }}
+                  tab={tab as FeedTabType}
                   isActive={isFocused && currentPage === idx}
                   insets={insets}
                   guestCookieReady={guestCookieReady}
@@ -507,13 +614,14 @@ export default function HomeScreen() {
             </View>
           );
         })}
-      </PagerView>
+      </AnimatedPagerView>
 
       {/* 3. 底部悬浮导航栏 (Custom TabBar) */}
-      <View
+      <Animated.View
         style={[
           styles.bottomBarContainer,
           { bottom: insets.bottom, width: containerWidth },
+          bottomNavAnimStyle,
         ]}
       >
         <BlurView
@@ -611,7 +719,7 @@ export default function HomeScreen() {
             )}
           </View>
         </BlurView>
-      </View>
+      </Animated.View>
       {!cookies && !guestCookieReady && (
         <View
           style={{
@@ -657,7 +765,15 @@ function BottomTabIcon({
   size = 24,
   isScrollTop,
   width,
-}: any) {
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  onPress: () => void;
+  color: string;
+  size?: number;
+  active?: boolean;
+  isScrollTop?: boolean;
+  width?: number;
+}) {
   // 动画状态
   const scale = useSharedValue(1);
   const opacity = useSharedValue(1);
@@ -701,11 +817,11 @@ function BottomTabIcon({
 
 // FeedList 组件
 const FeedList = React.forwardRef<
-  any,
+  FeedListHandle,
   {
-    tab: TabType;
+    tab: FeedTabType;
     isActive: boolean;
-    insets: any;
+    insets: EdgeInsets;
     guestCookieReady: boolean;
     onScroll?: (offset: number) => void;
     onRefreshStateChange?: (isRefreshing: boolean) => void;
@@ -814,7 +930,7 @@ const FeedList = React.forwardRef<
 
     const [initialFeedCache, setInitialFeedCache] = useState<{
       pages: Array<{ items: FeedListItem[]; nextUrl: string | null }>;
-      pageParams: any[];
+      pageParams: string[];
     } | null>(null);
     const [isCacheCheckDone, setIsCacheCheckDone] = useState(false);
 
@@ -832,7 +948,7 @@ const FeedList = React.forwardRef<
           if (cached && cached.items.length > 0) {
             setInitialFeedCache({
               pages: [{ items: cached.items, nextUrl: cached.nextUrl }],
-              pageParams: [(FEED_URLS as any)[tab]],
+              pageParams: [FEED_URLS[tab]],
             });
           }
         })
@@ -924,13 +1040,13 @@ const FeedList = React.forwardRef<
       refetch,
     } = useInfiniteQuery({
       queryKey: ['zhihu-feed', queryAccountKey, tab],
-      queryFn: async ({ pageParam = (FEED_URLS as any)[tab] }) => {
+      queryFn: async ({ pageParam = FEED_URLS[tab] }) => {
         if (!cookies && tab === 'following')
           return { items: [], nextUrl: null };
         try {
           let requestUrl = pageParam as string;
           const isInitialUrl =
-            (requestUrl === (FEED_URLS as any)[tab] ||
+            (requestUrl === FEED_URLS[tab] ||
               requestUrl === 'zhihu://local-feed' ||
               requestUrl.includes('feed/topstory/recommend')) &&
             !requestUrl.includes('action=down');
@@ -939,7 +1055,9 @@ const FeedList = React.forwardRef<
             requestUrl = `${requestUrl}${sep}action=up&t=${Date.now()}`;
           }
 
-          console.log(`🌐 [queryFn] Requesting URL: ${requestUrl} (tab=${tab}, isRefreshing=${isRefreshing})`);
+          console.log(
+            `🌐 [queryFn] Requesting URL: ${requestUrl} (tab=${tab}, isRefreshing=${isRefreshing})`,
+          );
           const data = await getFeed(requestUrl);
           const rawItems = data.data || [];
           seedAnswerDetailsFromFeed(queryClient, rawItems);
@@ -960,11 +1078,7 @@ const FeedList = React.forwardRef<
           const nextUrl =
             data.paging?.next?.replace('http://', 'https://') ?? null;
 
-          if (
-            launchCacheContext &&
-            isInitialUrl &&
-            items.length > 0
-          ) {
+          if (launchCacheContext && isInitialUrl && items.length > 0) {
             void feedCacheRepository
               .saveFeedCache(launchCacheContext, items, nextUrl)
               .catch((err) => console.warn('保存启动 Feed 缓存失败', err));
@@ -974,11 +1088,11 @@ const FeedList = React.forwardRef<
             items,
             nextUrl,
           };
-        } catch (_e: any) {
+        } catch {
           return { items: [], nextUrl: null };
         }
       },
-      initialPageParam: (FEED_URLS as any)[tab],
+      initialPageParam: FEED_URLS[tab],
       getNextPageParam: (lastPage) => lastPage.nextUrl,
       initialData: initialFeedCache ?? undefined,
       staleTime: launchCacheContext && initialFeedCache ? 5 * 60 * 1000 : 0,
@@ -1009,9 +1123,7 @@ const FeedList = React.forwardRef<
           }
         }
         const initialParam =
-          tab === 'local'
-            ? 'zhihu://local-feed'
-            : (FEED_URLS as any)[tab];
+          tab === 'local' ? 'zhihu://local-feed' : FEED_URLS[tab];
         await refreshInfiniteQuery(
           queryClient,
           ['zhihu-feed', queryAccountKey, tab],
@@ -1127,7 +1239,7 @@ const FeedList = React.forwardRef<
     }, [isActive, localDedupEnabled, recentExposureKeys]);
 
     React.useImperativeHandle(ref, () => ({
-      scrollToOffset: (args: any) => flashListRef.current?.scrollToOffset(args),
+      scrollToOffset: (args) => flashListRef.current?.scrollToOffset(args),
       refresh: handleRefresh,
     }));
 
@@ -1181,7 +1293,7 @@ const FeedList = React.forwardRef<
             const expanded = expandedCollapsedKeys.has(item.groupKey);
             const showReason = filterMode === 'collapse' && filterShowReason;
             return (
-              <Pressable
+              <BouncyButton
                 onPress={() => toggleCollapsed(item.groupKey)}
                 className="mx-2 my-1 flex-row items-center justify-between rounded-xl px-4 py-3"
                 style={{ backgroundColor: `${tintColor}14` }}
@@ -1199,7 +1311,7 @@ const FeedList = React.forwardRef<
                   size={16}
                   color={tintColor}
                 />
-              </Pressable>
+              </BouncyButton>
             );
           }
           return tab === 'hot' ? (
@@ -1275,7 +1387,12 @@ function parseFollowingData(item: RawFeedItem): FeedItem | null {
         target.author?.avatar_url ||
         'https://picx.zhimg.com/v2-abed1a8c04700ba7d72b45195223e0ff_l.jpg',
     },
-    excerpt: target.excerpt || target.content?.[0]?.content || '',
+    excerpt:
+      target.excerpt ||
+      (Array.isArray(target.content)
+        ? target.content[0]?.content
+        : target.content) ||
+      '',
     content: target.content || '',
     image:
       target.thumbnail ||
@@ -1288,7 +1405,10 @@ function parseFollowingData(item: RawFeedItem): FeedItem | null {
       target.favorite_count || target.reaction?.statistics?.favorites || 0,
     voted: target.relationship?.voting || 0,
     type: appType,
-    topics: target.topics?.map((t: any) => ({ id: t.id, name: t.name })) || [],
+    topics: target.topics?.map((topic) => ({
+      id: topic.id,
+      name: topic.name,
+    })),
   };
 }
 
@@ -1354,7 +1474,12 @@ function parseRecommendData(item: RawFeedItem): FeedItem | null {
         'https://picx.zhimg.com/v2-abed1a8c04700ba7d72b45195223e0ff_l.jpg',
       headline: target.author?.headline || '',
     },
-    excerpt: target.excerpt || target.content?.[0]?.content || '',
+    excerpt:
+      target.excerpt ||
+      (Array.isArray(target.content)
+        ? target.content[0]?.content
+        : target.content) ||
+      '',
     content: target.content || '',
     image:
       target.thumbnail ||
@@ -1370,7 +1495,10 @@ function parseRecommendData(item: RawFeedItem): FeedItem | null {
       0,
     voted: target.relationship?.voting || 0,
     type: appType,
-    topics: target.topics?.map((t: any) => ({ id: t.id, name: t.name })) || [],
+    topics: target.topics?.map((topic) => ({
+      id: topic.id,
+      name: topic.name,
+    })),
     // 本地过滤信号：实测推荐流可用字段（详见 utils/feedFilter.ts）
     // 盐选双信号取或：answer_type === 'PAID' 或 paid_info != null。
     // 大小写按接口而异——实测游客推荐流返回小写 `normal`，话题流返回大写
@@ -1393,8 +1521,8 @@ function parseRecommendData(item: RawFeedItem): FeedItem | null {
   };
 }
 
-function parseHotData(item: any, index: number): HotItem {
-  const target = (item.target || item) as any;
+function parseHotData(item: RawFeedItem, index: number): HotItem {
+  const target = item.target || (item as unknown as RawFeedTarget);
   const questionId =
     target.link?.url?.split('/').pop() || target.url?.split('/').pop() || '';
 

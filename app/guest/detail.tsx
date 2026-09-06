@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Image, ScrollView, StyleSheet } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { FeedItem } from '@/api/zhihu';
@@ -51,12 +51,13 @@ export default function GuestDetailScreen() {
         <Text type="secondary" className="mt-3 text-center">
           加载预览失败喵
         </Text>
-        <Pressable
-          className="mt-6 px-6 py-2.5 rounded-full bg-primary"
+        <BouncyButton
+          className="mt-6 px-6 py-2.5 rounded-full"
+          style={{ backgroundColor: tintColor }}
           onPress={() => router.back()}
         >
           <Text className="text-white font-bold">返回上一页</Text>
-        </Pressable>
+        </BouncyButton>
       </View>
     );
   }
@@ -65,16 +66,28 @@ export default function GuestDetailScreen() {
   const isArticle = item.type === 'articles';
   const isPin = item.type === 'pins';
   const isAnswer = item.type === 'answers';
+  const isVideo = item.type === 'videos';
+  const isQuestion = item.type === 'questions';
 
-  const typeLabel = isArticle
-    ? '专栏文章'
+  const typeLabel = isVideo
+    ? '知乎视频'
+    : isArticle
+      ? '专栏文章'
+      : isPin
+        ? '精选想法'
+        : isAnswer
+          ? '知乎回答'
+          : '热门问题';
+
+  const routeType = isArticle
+    ? 'article'
     : isPin
-      ? '精选想法'
-      : isAnswer
-        ? '知乎回答'
-        : '热门问题';
-
-  const routeType = isArticle ? 'article' : isPin ? 'pin' : 'answer';
+      ? 'pin'
+      : isVideo
+        ? 'video'
+        : isQuestion
+          ? 'question'
+          : 'answer';
 
   const navigateToComments = () => {
     router.push(
@@ -99,15 +112,15 @@ export default function GuestDetailScreen() {
         ]}
         className="flex-row items-center justify-between px-[15px]"
       >
-        <Pressable
+        <BouncyButton
           onPress={() => router.back()}
-          className="w-10 h-10 justify-center items-center"
+          className="w-10 h-10 justify-center items-center rounded-full"
         >
           <Ionicons name="chevron-back" size={28} color={textColor} />
-        </Pressable>
+        </BouncyButton>
         <Text className="text-[17px] font-bold">游客预览</Text>
         <View
-          className="px-2 py-0.5 rounded-full bg-primary/10"
+          className="px-2 py-0.5 rounded-full"
           style={{ backgroundColor: `${tintColor}15` }}
         >
           <Text
@@ -215,25 +228,27 @@ export default function GuestDetailScreen() {
                   </Text>
                 </View>
               )}
-              {item.commentCount !== undefined && item.commentCount > 0 && (
-                <BouncyButton
-                  onPress={navigateToComments}
-                  className="flex-row items-center px-3 py-1.5 rounded-full"
-                  style={{ backgroundColor: `${secondaryTextColor}08` }}
-                >
-                  <Ionicons
-                    name="chatbubble-ellipses-outline"
-                    size={14}
-                    color={secondaryTextColor}
-                  />
-                  <Text
-                    className="text-xs font-semibold ml-1"
-                    style={{ color: secondaryTextColor }}
+              {!isVideo &&
+                item.commentCount !== undefined &&
+                item.commentCount > 0 && (
+                  <BouncyButton
+                    onPress={navigateToComments}
+                    className="flex-row items-center px-3 py-1.5 rounded-full"
+                    style={{ backgroundColor: `${secondaryTextColor}08` }}
                   >
-                    {item.commentCount} 评论
-                  </Text>
-                </BouncyButton>
-              )}
+                    <Ionicons
+                      name="chatbubble-ellipses-outline"
+                      size={14}
+                      color={secondaryTextColor}
+                    />
+                    <Text
+                      className="text-xs font-semibold ml-1"
+                      style={{ color: secondaryTextColor }}
+                    >
+                      {item.commentCount} 评论
+                    </Text>
+                  </BouncyButton>
+                )}
             </View>
           )}
 
@@ -252,7 +267,12 @@ export default function GuestDetailScreen() {
           <View className="px-5 mt-3 bg-transparent">
             {item.content ? (
               <ZhihuContent
-                content={item.content}
+                content={
+                  typeof item.content === 'string' ? item.content : undefined
+                }
+                contentArray={
+                  Array.isArray(item.content) ? item.content : undefined
+                }
                 objectId={item.id}
                 type={isArticle ? 'article' : isPin ? 'pin' : 'answer'}
                 useNative={true}
@@ -270,37 +290,39 @@ export default function GuestDetailScreen() {
           </View>
 
           {/* 4.5 查看全部评论大按钮 */}
-          {item.commentCount !== undefined && item.commentCount > 0 && (
-            <View className="px-5 mt-6 mb-2 bg-transparent">
-              <BouncyButton
-                onPress={navigateToComments}
-                className="w-full h-12 rounded-xl flex-row items-center justify-center border"
-                style={{
-                  borderColor: tintColor,
-                  backgroundColor: `${tintColor}05`,
-                }}
-              >
-                <Ionicons
-                  name="chatbubble-ellipses-outline"
-                  size={16}
-                  color={tintColor}
-                  style={{ marginRight: 6 }}
-                />
-                <Text
-                  className="font-bold text-[14px]"
-                  style={{ color: tintColor }}
+          {!isVideo &&
+            item.commentCount !== undefined &&
+            item.commentCount > 0 && (
+              <View className="px-5 mt-6 mb-2 bg-transparent">
+                <BouncyButton
+                  onPress={navigateToComments}
+                  className="w-full h-12 rounded-xl flex-row items-center justify-center border"
+                  style={{
+                    borderColor: tintColor,
+                    backgroundColor: `${tintColor}05`,
+                  }}
                 >
-                  查看全部 {item.commentCount} 条评论
-                </Text>
-              </BouncyButton>
-            </View>
-          )}
+                  <Ionicons
+                    name="chatbubble-ellipses-outline"
+                    size={16}
+                    color={tintColor}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text
+                    className="font-bold text-[14px]"
+                    style={{ color: tintColor }}
+                  >
+                    查看全部 {item.commentCount} 条评论
+                  </Text>
+                </BouncyButton>
+              </View>
+            )}
         </Animated.View>
 
         {/* 5. 游客提示卡片 */}
         <Animated.View
           entering={FadeInDown.delay(100).duration(500)}
-          className="mx-5 mt-8 p-6 rounded-[24px] shadow-sm items-center border"
+          className="mx-5 mt-8 p-6 rounded-[24px] items-center border"
           style={{
             backgroundColor: cardBg,
             borderColor,
@@ -323,7 +345,7 @@ export default function GuestDetailScreen() {
 
           {/* 登录按钮 */}
           <BouncyButton
-            onPress={() => router.push('/login' as any)}
+            onPress={() => router.push('/login')}
             className="w-full h-12 rounded-full items-center justify-center mb-3.5"
             style={{ backgroundColor: tintColor }}
           >

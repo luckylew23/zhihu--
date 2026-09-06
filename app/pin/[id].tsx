@@ -3,13 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect } from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-} from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addReadHistory } from '@/api/zhihu/history';
 import { followMember, unfollowMember } from '@/api/zhihu/member';
@@ -23,6 +17,7 @@ import Colors from '@/constants/Colors';
 import { ZhihuContent } from '@/features/rich-content';
 import { useOptimisticToggle } from '@/hooks/useOptimisticToggle';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import type { ZhihuPin } from '@/types/zhihu';
 import { formatDateTime } from '@/utils/date';
 
 export default function PinDetailScreen() {
@@ -59,15 +54,24 @@ export default function PinDetailScreen() {
     }
   }, [enableBrowseHistory, pin?.id]);
 
-  const followMutation = useOptimisticToggle({
+  const followMutation = useOptimisticToggle<Pick<ZhihuPin, 'author'>>({
+    queryKey: ['pin-detail', id],
     mutationFn: async () => {
-      if (pin?.author?.is_following)
-        return unfollowMember(pin.author.url_token || pin.author.id);
-      return followMember(pin.author.url_token || pin.author.id);
+      const author = pin?.author;
+      if (!author) throw new Error('想法尚未加载');
+      if (author.is_following)
+        return unfollowMember(author.url_token || author.id);
+      return followMember(author.url_token || author.id);
     },
     isActive: pin?.author?.is_following,
+    onUpdateCache: (old) => ({
+      ...old,
+      author: {
+        ...old.author,
+        is_following: !old.author.is_following,
+      },
+    }),
     successMessage: (isActive) => (isActive ? '已取消关注' : '已关注'),
-    invalidateQueries: [['pin-detail', id]],
   });
 
   const goToProfile = useCallback(() => {
@@ -120,12 +124,13 @@ export default function PinDetailScreen() {
           headerStyle: { backgroundColor },
           headerTintColor: textColor,
           headerRight: () => (
-            <Pressable
+            <BouncyButton
+              className="p-2 rounded-full"
               onPress={() => setIsSharing(true)}
               style={{ marginRight: 10 }}
             >
               <ThemedIcon name="share-outline" size={24} colorType="default" />
-            </Pressable>
+            </BouncyButton>
           ),
         }}
       />
@@ -153,7 +158,7 @@ export default function PinDetailScreen() {
       >
         {/* 作者信息栏 */}
         <View className="flex-row items-center p-5 justify-between bg-transparent">
-          <Pressable
+          <BouncyButton
             onPress={goToProfile}
             className="flex-row items-center flex-1 bg-transparent"
           >
@@ -171,8 +176,8 @@ export default function PinDetailScreen() {
                 {pin?.author?.headline}
               </Text>
             </View>
-          </Pressable>
-          <Pressable
+          </BouncyButton>
+          <BouncyButton
             className="px-[15px] py-1.5 rounded-[20px]"
             style={[
               !pin?.author?.is_following
@@ -196,7 +201,7 @@ export default function PinDetailScreen() {
             >
               {pin?.author?.is_following ? '已关注' : '关注'}
             </Text>
-          </Pressable>
+          </BouncyButton>
         </View>
 
         {/* 想法内容 */}
@@ -245,8 +250,8 @@ export default function PinDetailScreen() {
               />
             </View>
             <View className="flex-1 flex-row justify-end items-center bg-transparent">
-              <Pressable
-                className="items-center ml-5 flex-row bg-transparent"
+              <BouncyButton
+                className="items-center justify-center ml-3 p-2 flex-row rounded-full bg-transparent"
                 onPress={() => router.push(`/comments/${id}?type=pin`)}
               >
                 <ThemedIcon
@@ -262,9 +267,9 @@ export default function PinDetailScreen() {
                     {pin?.comment_count}
                   </Text>
                 )}
-              </Pressable>
-              <Pressable
-                className="items-center ml-5 flex-row bg-transparent"
+              </BouncyButton>
+              <BouncyButton
+                className="items-center justify-center ml-3 p-2 flex-row rounded-full bg-transparent"
                 onPress={() => setIsSharing(true)}
               >
                 <ThemedIcon
@@ -272,7 +277,7 @@ export default function PinDetailScreen() {
                   size={24}
                   colorType="secondary"
                 />
-              </Pressable>
+              </BouncyButton>
             </View>
           </View>
         </BlurView>

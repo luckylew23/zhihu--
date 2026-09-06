@@ -1,14 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  View as NativeView,
-  Pressable,
-} from 'react-native';
+import { ActivityIndicator, Image, View as NativeView } from 'react-native';
 import PagerView from 'react-native-pager-view';
 import {
   getMemberFollowing,
@@ -16,11 +11,20 @@ import {
   getMemberFollowingFavlists,
   getMemberFollowingQuestions,
   getMemberFollowingTopics,
+  type ZhihuFollowingColumnItem,
+  type ZhihuFollowingFavlistItem,
+  type ZhihuFollowingQuestionItem,
+  type ZhihuFollowingTopicContributionItem,
+  type ZhihuMemberListItem,
 } from '@/api/zhihu';
+import { BouncyButton } from '@/components/BouncyButton';
+import { QueryErrorView } from '@/components/QueryErrorView';
 import { Text, useThemeColor, View } from '@/components/Themed';
 import { UserCard } from '@/components/UserCard';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { refreshInfiniteQuery } from '@/utils/query';
+import { getNextPageOffset } from '@/utils/userProfile';
 
 const TABS = [
   { key: 'users', title: '关注的人' },
@@ -28,12 +32,39 @@ const TABS = [
   { key: 'topics', title: '话题' },
   { key: 'questions', title: '问题' },
   { key: 'favlists', title: '收藏夹' },
-];
+] as const;
+
+type FollowingTabKey = (typeof TABS)[number]['key'];
+type FollowingListItem =
+  | ZhihuMemberListItem
+  | ZhihuFollowingColumnItem
+  | ZhihuFollowingTopicContributionItem
+  | ZhihuFollowingQuestionItem
+  | ZhihuFollowingFavlistItem;
+
+function getFollowingItemKey(item: FollowingListItem, tabKey: FollowingTabKey) {
+  if (tabKey === 'topics') {
+    return String((item as ZhihuFollowingTopicContributionItem).topic.id);
+  }
+  if (tabKey === 'users') {
+    const member = item as ZhihuMemberListItem;
+    return String(member.id || member.url_token);
+  }
+  return String(
+    (
+      item as
+        | ZhihuFollowingColumnItem
+        | ZhihuFollowingQuestionItem
+        | ZhihuFollowingFavlistItem
+    ).id,
+  );
+}
 
 export default function FollowingScreen() {
-  const { id } = useLocalSearchParams();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState('users');
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<FollowingTabKey>('users');
   const [_currentPage, setCurrentPage] = useState(0);
   const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>({
     users: true,
@@ -48,14 +79,11 @@ export default function FollowingScreen() {
   // 1. 关注的人 Query
   const usersQuery = useInfiniteQuery({
     queryKey: ['user-following-users', id],
-    queryFn: ({ pageParam = 0 }) =>
-      getMemberFollowing(id as string, 20, pageParam as number),
+    queryFn: ({ pageParam = 0 }) => getMemberFollowing(id, 20, pageParam),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage || lastPage.paging?.is_end) return undefined;
-      const nextUrl = lastPage.paging?.next;
-      const match = nextUrl?.match(/offset=(\d+)/);
-      return match ? parseInt(match[1], 10) : undefined;
+      return getNextPageOffset(lastPage.paging?.next);
     },
     enabled: visitedTabs.users || activeTab === 'users',
   });
@@ -64,13 +92,11 @@ export default function FollowingScreen() {
   const columnsQuery = useInfiniteQuery({
     queryKey: ['user-following-columns', id],
     queryFn: ({ pageParam = 0 }) =>
-      getMemberFollowingColumns(id as string, pageParam as number, 20),
+      getMemberFollowingColumns(id, pageParam, 20),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage || lastPage.paging?.is_end) return undefined;
-      const nextUrl = lastPage.paging?.next;
-      const match = nextUrl?.match(/offset=(\d+)/);
-      return match ? parseInt(match[1], 10) : undefined;
+      return getNextPageOffset(lastPage.paging?.next);
     },
     enabled: visitedTabs.columns || activeTab === 'columns',
   });
@@ -78,14 +104,11 @@ export default function FollowingScreen() {
   // 3. 关注的话题 Query
   const topicsQuery = useInfiniteQuery({
     queryKey: ['user-following-topics', id],
-    queryFn: ({ pageParam = 0 }) =>
-      getMemberFollowingTopics(id as string, pageParam as number, 20),
+    queryFn: ({ pageParam = 0 }) => getMemberFollowingTopics(id, pageParam, 20),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage || lastPage.paging?.is_end) return undefined;
-      const nextUrl = lastPage.paging?.next;
-      const match = nextUrl?.match(/offset=(\d+)/);
-      return match ? parseInt(match[1], 10) : undefined;
+      return getNextPageOffset(lastPage.paging?.next);
     },
     enabled: visitedTabs.topics || activeTab === 'topics',
   });
@@ -94,13 +117,11 @@ export default function FollowingScreen() {
   const questionsQuery = useInfiniteQuery({
     queryKey: ['user-following-questions', id],
     queryFn: ({ pageParam = 0 }) =>
-      getMemberFollowingQuestions(id as string, pageParam as number, 20),
+      getMemberFollowingQuestions(id, pageParam, 20),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage || lastPage.paging?.is_end) return undefined;
-      const nextUrl = lastPage.paging?.next;
-      const match = nextUrl?.match(/offset=(\d+)/);
-      return match ? parseInt(match[1], 10) : undefined;
+      return getNextPageOffset(lastPage.paging?.next);
     },
     enabled: visitedTabs.questions || activeTab === 'questions',
   });
@@ -109,23 +130,23 @@ export default function FollowingScreen() {
   const favlistsQuery = useInfiniteQuery({
     queryKey: ['user-following-favlists', id],
     queryFn: ({ pageParam = 0 }) =>
-      getMemberFollowingFavlists(id as string, pageParam as number, 20),
+      getMemberFollowingFavlists(id, pageParam, 20),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (!lastPage || lastPage.paging?.is_end) return undefined;
-      const nextUrl = lastPage.paging?.next;
-      const match = nextUrl?.match(/offset=(\d+)/);
-      return match ? parseInt(match[1], 10) : undefined;
+      return getNextPageOffset(lastPage.paging?.next);
     },
     enabled: visitedTabs.favlists || activeTab === 'favlists',
   });
 
-  const getQueryState = (tabKey: string) => {
+  const getQueryState = (tabKey: FollowingTabKey) => {
     switch (tabKey) {
       case 'users':
         return {
+          queryKey: ['user-following-users', id] as const,
           data: usersQuery.data?.pages.flatMap((page) => page.data) || [],
           isLoading: usersQuery.isLoading,
+          isError: usersQuery.isError,
           isFetchingNextPage: usersQuery.isFetchingNextPage,
           hasNextPage: usersQuery.hasNextPage,
           fetchNextPage: usersQuery.fetchNextPage,
@@ -134,8 +155,10 @@ export default function FollowingScreen() {
         };
       case 'columns':
         return {
+          queryKey: ['user-following-columns', id] as const,
           data: columnsQuery.data?.pages.flatMap((page) => page.data) || [],
           isLoading: columnsQuery.isLoading,
+          isError: columnsQuery.isError,
           isFetchingNextPage: columnsQuery.isFetchingNextPage,
           hasNextPage: columnsQuery.hasNextPage,
           fetchNextPage: columnsQuery.fetchNextPage,
@@ -144,8 +167,10 @@ export default function FollowingScreen() {
         };
       case 'topics':
         return {
+          queryKey: ['user-following-topics', id] as const,
           data: topicsQuery.data?.pages.flatMap((page) => page.data) || [],
           isLoading: topicsQuery.isLoading,
+          isError: topicsQuery.isError,
           isFetchingNextPage: topicsQuery.isFetchingNextPage,
           hasNextPage: topicsQuery.hasNextPage,
           fetchNextPage: topicsQuery.fetchNextPage,
@@ -154,8 +179,10 @@ export default function FollowingScreen() {
         };
       case 'questions':
         return {
+          queryKey: ['user-following-questions', id] as const,
           data: questionsQuery.data?.pages.flatMap((page) => page.data) || [],
           isLoading: questionsQuery.isLoading,
+          isError: questionsQuery.isError,
           isFetchingNextPage: questionsQuery.isFetchingNextPage,
           hasNextPage: questionsQuery.hasNextPage,
           fetchNextPage: questionsQuery.fetchNextPage,
@@ -164,8 +191,10 @@ export default function FollowingScreen() {
         };
       case 'favlists':
         return {
+          queryKey: ['user-following-favlists', id] as const,
           data: favlistsQuery.data?.pages.flatMap((page) => page.data) || [],
           isLoading: favlistsQuery.isLoading,
+          isError: favlistsQuery.isError,
           isFetchingNextPage: favlistsQuery.isFetchingNextPage,
           hasNextPage: favlistsQuery.hasNextPage,
           fetchNextPage: favlistsQuery.fetchNextPage,
@@ -174,8 +203,10 @@ export default function FollowingScreen() {
         };
       default:
         return {
+          queryKey: ['user-following-unknown', id] as const,
           data: [],
           isLoading: false,
+          isError: false,
           isFetchingNextPage: false,
           hasNextPage: false,
           fetchNextPage: () => {},
@@ -193,49 +224,62 @@ export default function FollowingScreen() {
     setVisitedTabs((prev) => ({ ...prev, [tabKey]: true }));
   };
 
-  const renderItem = ({ item, tabKey }: { item: any; tabKey: string }) => {
+  const renderItem = ({
+    item,
+    tabKey,
+  }: {
+    item: FollowingListItem;
+    tabKey: FollowingTabKey;
+  }) => {
     if (tabKey === 'users') {
-      return <UserCard user={item} />;
+      const member = item as ZhihuMemberListItem;
+      return (
+        <UserCard
+          user={member}
+          invalidateQueryKeys={[['user-following-users', id]]}
+        />
+      );
     }
     if (tabKey === 'columns') {
+      const column = item as ZhihuFollowingColumnItem;
       return (
-        <Pressable
+        <BouncyButton
           className="flex-row items-center p-4"
           style={{ borderBottomWidth: 0.5, borderBottomColor: borderColor }}
-          onPress={() => router.push(`/column/${item.id}`)}
+          onPress={() => router.push(`/column/${column.id}`)}
         >
           <Image
-            source={{ uri: item.image_url }}
+            source={{ uri: column.image_url }}
             className="w-12 h-12 rounded-lg"
           />
           <View className="flex-1 ml-3 bg-transparent">
             <Text className="text-base font-semibold" numberOfLines={1}>
-              {item.title}
+              {column.title}
             </Text>
             <Text
               type="secondary"
               className="text-[13px] mt-0.5"
               numberOfLines={1}
             >
-              {item.intro || item.excerpt || '这个专栏没有简介喵'}
+              {column.intro || column.excerpt || '这个专栏没有简介喵'}
             </Text>
             <View className="flex-row mt-1 bg-transparent">
               <Text type="secondary" className="text-xs">
-                {item.followers || 0} 关注者
+                {column.followers || 0} 关注者
               </Text>
               <Text type="secondary" className="text-xs ml-3">
-                {item.articles_count || 0} 文章
+                {column.articles_count || 0} 文章
               </Text>
             </View>
           </View>
-        </Pressable>
+        </BouncyButton>
       );
     }
     if (tabKey === 'topics') {
-      const topic = item.topic;
+      const topic = (item as ZhihuFollowingTopicContributionItem).topic;
       if (!topic) return null;
       return (
-        <Pressable
+        <BouncyButton
           className="flex-row items-center p-4"
           style={{ borderBottomWidth: 0.5, borderBottomColor: borderColor }}
           onPress={() => router.push(`/topic/${topic.id}`)}
@@ -264,73 +308,76 @@ export default function FollowingScreen() {
               </Text>
             </View>
           </View>
-        </Pressable>
+        </BouncyButton>
       );
     }
     if (tabKey === 'questions') {
+      const question = item as ZhihuFollowingQuestionItem;
       return (
-        <Pressable
+        <BouncyButton
           className="p-4"
           style={{ borderBottomWidth: 0.5, borderBottomColor: borderColor }}
-          onPress={() => router.push(`/question/${item.id}`)}
+          onPress={() => router.push(`/question/${question.id}`)}
         >
           <Text className="text-base font-semibold" numberOfLines={2}>
-            {item.title}
+            {question.title}
           </Text>
           <View className="flex-row mt-2 bg-transparent items-center">
             <Text type="secondary" className="text-xs">
-              {item.answer_count || 0} 个回答
+              {question.answer_count || 0} 个回答
             </Text>
             <Text type="secondary" className="text-xs ml-3">
-              {item.follower_count || 0} 人关注
+              {question.follower_count || 0} 人关注
             </Text>
-            {item.author?.name && (
+            {question.author?.name && (
               <Text type="secondary" className="text-xs ml-auto">
-                提问者: {item.author.name}
+                提问者: {question.author.name}
               </Text>
             )}
           </View>
-        </Pressable>
+        </BouncyButton>
       );
     }
     if (tabKey === 'favlists') {
+      const favlist = item as ZhihuFollowingFavlistItem;
       return (
-        <Pressable
+        <BouncyButton
           className="flex-row items-center p-4"
           style={{ borderBottomWidth: 0.5, borderBottomColor: borderColor }}
-          onPress={() => router.push(`/collections/${item.id}`)}
+          onPress={() => router.push(`/collections/${favlist.id}`)}
         >
           <View
             className="w-12 h-12 rounded-lg justify-center items-center relative"
             style={{ backgroundColor: 'rgba(0,132,255,0.05)' }}
           >
             <Ionicons
-              name={item.is_public ? 'folder' : 'folder-outline'}
+              name={favlist.is_public ? 'folder' : 'folder-outline'}
               size={24}
               color={tint}
             />
           </View>
           <View className="flex-1 ml-3 bg-transparent">
             <Text className="text-base font-semibold" numberOfLines={1}>
-              {item.title}
+              {favlist.title}
             </Text>
             <Text
               type="secondary"
               className="text-[13px] mt-0.5"
               numberOfLines={1}
             >
-              {item.description || `创建者: ${item.creator?.name || '匿名'}`}
+              {favlist.description ||
+                `创建者: ${favlist.creator?.name || '匿名'}`}
             </Text>
             <View className="flex-row mt-1 bg-transparent">
               <Text type="secondary" className="text-xs">
-                {item.answer_count || 0} 内容
+                {favlist.answer_count || 0} 内容
               </Text>
               <Text type="secondary" className="text-xs ml-3">
-                {item.follower_count || 0} 关注者
+                {favlist.follower_count || 0} 关注者
               </Text>
             </View>
           </View>
-        </Pressable>
+        </BouncyButton>
       );
     }
     return null;
@@ -338,7 +385,7 @@ export default function FollowingScreen() {
 
   return (
     <View className="flex-1">
-      <Stack.Screen options={{ title: '我的关注' }} />
+      <Stack.Screen options={{ title: '关注' }} />
 
       {/* Tab bar */}
       <View
@@ -348,7 +395,7 @@ export default function FollowingScreen() {
         {TABS.map((tab, idx) => {
           const isActive = activeTab === tab.key;
           return (
-            <Pressable
+            <BouncyButton
               key={tab.key}
               onPress={() => handleTabPress(idx)}
               className="flex-1 justify-center items-center h-full"
@@ -365,7 +412,7 @@ export default function FollowingScreen() {
                   style={{ backgroundColor: tint }}
                 />
               )}
-            </Pressable>
+            </BouncyButton>
           );
         })}
       </View>
@@ -386,17 +433,33 @@ export default function FollowingScreen() {
           const query = getQueryState(tab.key);
           return (
             <NativeView key={tab.key} className="flex-1">
-              <FlashList
+              <FlashList<FollowingListItem>
                 data={query.data}
+                keyExtractor={(item) => getFollowingItemKey(item, tab.key)}
                 renderItem={({ item }) => renderItem({ item, tabKey: tab.key })}
-                {...({ estimatedItemSize: 80 } as any)}
-                onEndReached={() => query.hasNextPage && query.fetchNextPage()}
-                onRefresh={query.refetch}
+                onEndReached={() => {
+                  if (query.hasNextPage && !query.isFetchingNextPage) {
+                    void query.fetchNextPage();
+                  }
+                }}
+                onRefresh={() =>
+                  void refreshInfiniteQuery(
+                    queryClient,
+                    query.queryKey,
+                    query.refetch,
+                  )
+                }
                 refreshing={query.isRefetching}
                 ListEmptyComponent={() => (
                   <View className="p-[50px] items-center">
                     {query.isLoading ? (
                       <ActivityIndicator color={tint} />
+                    ) : query.isError ? (
+                      <QueryErrorView
+                        compact
+                        message={`${tab.title}加载失败`}
+                        onRetry={() => void query.refetch()}
+                      />
                     ) : (
                       <Text type="secondary">这里空空如也喵</Text>
                     )}

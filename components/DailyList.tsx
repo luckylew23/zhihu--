@@ -3,7 +3,7 @@ import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useMemo } from 'react';
-import { Image, Pressable } from 'react-native';
+import { Image } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -12,7 +12,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { getDailyBefore, getDailyLatest } from '@/api/zhihu';
-import { Text, View } from '@/components/Themed';
+import { Text, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { refreshInfiniteQuery } from '@/utils/query';
@@ -50,7 +50,7 @@ const SkeletonCard = () => {
       ),
       -1,
     );
-  }, []);
+  }, [opacity]);
   const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
@@ -99,6 +99,8 @@ export const DailyList = React.forwardRef<
 >(({ insets, onScroll, onRefreshStateChange }, ref) => {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const colorScheme = useColorScheme();
+  const primaryColor = useThemeColor({}, 'primary');
   const [isRefreshing, setIsRefreshing] = React.useState(false);
 
   const {
@@ -169,16 +171,21 @@ export const DailyList = React.forwardRef<
   if (!isLoading && flattenedData.length === 0) {
     return (
       <View className="flex-1 justify-center items-center p-10">
-        <Ionicons name="alert-circle-outline" size={48} color="#ccc" />
+        <Ionicons
+          name="alert-circle-outline"
+          size={48}
+          color={Colors[colorScheme].tabIconDefault}
+        />
         <Text type="secondary" className="mt-4 text-center">
           暂时没发现日报内容喵，可能是网络问题或者知乎日报今天还没更新。
         </Text>
-        <Pressable
-          className="mt-6 px-6 py-2.5 rounded-full bg-primary"
+        <BouncyButton
+          className="mt-6 px-6 py-2.5 rounded-full"
+          style={{ backgroundColor: primaryColor }}
           onPress={() => refetch()}
         >
           <Text className="text-white font-bold">重试一下</Text>
-        </Pressable>
+        </BouncyButton>
       </View>
     );
   }
@@ -220,6 +227,7 @@ export const DailyList = React.forwardRef<
           const story = item.data;
           return (
             <BouncyButton
+              className="mx-3 mb-3 rounded-xl overflow-hidden"
               onPress={() =>
                 router.push({
                   pathname: `/article/${story.id}`,
@@ -227,10 +235,7 @@ export const DailyList = React.forwardRef<
                 } as any)
               }
             >
-              <View
-                type="surface"
-                className="flex-row mx-3 mb-3 p-3 rounded-xl"
-              >
+              <View type="surface" className="flex-row p-3">
                 <Image
                   source={{ uri: story.images?.[0] }}
                   className="w-20 h-20 rounded-lg"

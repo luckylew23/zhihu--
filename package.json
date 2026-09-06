@@ -1,7 +1,7 @@
 {
   "name": "zhihu--",
   "main": "expo-router/entry",
-  "version": "0.4.2",
+  "version": "0.5.1",
   "scripts": {
     "start": "expo start",
     "prebuild": "expo prebuild",
@@ -10,14 +10,20 @@
     "web": "expo start --web",
     "analyze:rich-content": "node features/rich-content/tools/analyze-fixtures.mjs",
     "analyze:rich-content:inbox": "node features/rich-content/tools/analyze-fixtures.mjs --inbox",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:rich-content && npm run test:theme && npm run test:user-profile",
     "test:rich-content": "node --test features/rich-content/tests/*.test.mjs",
+    "test:user-profile": "node --experimental-strip-types --test tests/userProfile.test.mjs",
+    "test:theme": "node --test tests/themeMode.test.mjs",
     "postinstall": "patch-package",
     "format": "biome format . --write",
-    "lint": "biome check . --write"
+    "lint": "biome check .",
+    "lint:fix": "biome check . --write",
+    "check": "npm run typecheck && npm run lint && npm test && npm run analyze:rich-content"
   },
   "dependencies": {
+    "@preeternal/react-native-cookie-manager": "^6.4.0",
     "@react-native-community/cli": "^20.0.1",
-    "@react-native-cookies/cookies": "^6.2.1",
     "@react-native-masked-view/masked-view": "0.3.2",
     "@react-navigation/native": "^7.1.28",
     "@sentry/react-native": "~7.11.0",

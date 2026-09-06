@@ -13,13 +13,13 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   View as RNView,
   StyleSheet,
   TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getMessages, sendMessage } from '@/api/zhihu';
+import { BouncyButton } from '@/components/BouncyButton';
 import { Text, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -148,7 +148,7 @@ export default function ChatScreen() {
               isMe && { backgroundColor: primaryColor },
               !isMe && !isDark
                 ? {
-                    shadowColor: '#000',
+                    shadowColor: Colors.light.shadow,
                     shadowOffset: { width: 0, height: 1 },
                     shadowOpacity: 0.1,
                     shadowRadius: 2,
@@ -193,7 +193,11 @@ export default function ChatScreen() {
     >
       <View
         className="flex-1"
-        style={{ backgroundColor: isDark ? '#000' : '#f5f5f5' }}
+        style={{
+          backgroundColor: isDark
+            ? Colors.light.shadow
+            : Colors.light.backgroundTertiary,
+        }}
       >
         <FlatList
           ref={flatListRef}
@@ -242,20 +246,20 @@ export default function ChatScreen() {
       >
         <RNView
           className="flex-1 flex-row items-center rounded-full px-4 min-h-[40px] max-h-[100px]"
-          style={{ backgroundColor: isDark ? '#222' : '#f0f0f0' }}
+          style={{ backgroundColor: Colors[colorScheme].chatBubble }}
         >
           <TextInput
             className="flex-1 text-[15px] py-2"
             style={{ color: Colors[colorScheme].text }}
             placeholder="发送私信..."
-            placeholderTextColor="#888"
+            placeholderTextColor={Colors[colorScheme].iconMuted}
             value={inputText}
             onChangeText={setInputText}
             multiline
           />
         </RNView>
 
-        <Pressable
+        <BouncyButton
           onPress={handleSend}
           disabled={!inputText.trim() || sendMutation.isPending}
           className="ml-3 w-10 h-10 rounded-full justify-center items-center"
@@ -268,15 +272,22 @@ export default function ChatScreen() {
           }}
         >
           {sendMutation.isPending ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <ActivityIndicator
+              size="small"
+              color={Colors[colorScheme].textInverse}
+            />
           ) : (
             <Ionicons
               name="arrow-up"
               size={20}
-              color={inputText.trim() ? '#fff' : '#999'}
+              color={
+                inputText.trim()
+                  ? Colors[colorScheme].textInverse
+                  : Colors[colorScheme].textTertiary
+              }
             />
           )}
-        </Pressable>
+        </BouncyButton>
       </View>
     </KeyboardAvoidingView>
   );

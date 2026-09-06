@@ -11,7 +11,6 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   Image,
   Keyboard,
   Platform,
@@ -19,6 +18,11 @@ import {
   TextInput,
   useWindowDimensions,
 } from 'react-native';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   type CommentItem,
@@ -33,14 +37,13 @@ import {
   getQuestionCommentsV5 as getQuestionComments,
 } from '@/api/zhihu';
 import { BouncyButton } from '@/components/BouncyButton';
+import { CommentActionSheet } from '@/components/CommentActionSheet';
 import { CommentContent } from '@/components/CommentContent';
 import { LikeButton } from '@/components/LikeButton';
 import { Text, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { copyToClipboard } from '@/utils/clipboard';
 import { formatDate } from '@/utils/date';
-import { showToast } from '@/utils/toast';
 
 export default function CommentScreen() {
   const { id, type, segmentId, count, text } = useLocalSearchParams<{
@@ -55,6 +58,10 @@ export default function CommentScreen() {
   const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(
     null,
   );
+  const [commentAction, setCommentAction] = useState<{
+    htmlContent: string;
+    authorName: string;
+  } | null>(null);
   const inputRef = React.useRef<TextInput>(null);
   const _queryClient = useQueryClient();
   const _insets = useSafeAreaInsets();
@@ -69,26 +76,22 @@ export default function CommentScreen() {
   const insets = _insets;
 
   // 键盘高度动画：解决键盘收起后输入框无法回到底部的 bug
-  const keyboardHeight = React.useRef(new Animated.Value(0)).current;
+  const keyboardHeight = useSharedValue(0);
   useEffect(() => {
     const show = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e) => {
-        Animated.timing(keyboardHeight, {
-          toValue: e.endCoordinates.height,
+        keyboardHeight.value = withTiming(e.endCoordinates.height, {
           duration: Platform.OS === 'ios' ? e.duration || 250 : 200,
-          useNativeDriver: false,
-        }).start();
+        });
       },
     );
     const hide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       (e) => {
-        Animated.timing(keyboardHeight, {
-          toValue: 0,
+        keyboardHeight.value = withTiming(0, {
           duration: Platform.OS === 'ios' ? e.duration || 250 : 200,
-          useNativeDriver: false,
-        }).start();
+        });
       },
     );
     return () => {
@@ -96,6 +99,10 @@ export default function CommentScreen() {
       hide.remove();
     };
   }, [keyboardHeight]);
+
+  const inputBarAnimatedStyle = useAnimatedStyle(() => ({
+    bottom: keyboardHeight.value,
+  }));
 
   // 输入框高度（居中估算，动态取实际高度应用 onLayout）
   const INPUT_BAR_HEIGHT = 60;
@@ -161,26 +168,14 @@ export default function CommentScreen() {
     if (urlToken) router.push(`/user/${urlToken}`);
   };
 
-  // 提取 HTML 评论的纯文本（用于长按复制）
-  const extractPlainText = (html: string) => {
-    const imageRegex =
-      /<a[^>]+class="comment_img"[^>]*href="([^"]+)"[^>]*>.*?<\/a>|<a[^>]+href="([^"]+)"[^>]*class="comment_img"[^>]*>.*?<\/a>/gi;
-    return html
-      .replace(imageRegex, '[\u56fe\u7247]')
-      .replace(/<[^>]+>/g, '')
-      .trim();
-  };
-
-  const handleLongPressComment = async (html: string, authorName: string) => {
-    const text = extractPlainText(html);
-    if (!text) return;
-    const ok = await copyToClipboard(text);
-    if (ok) showToast(`已复制 @${authorName} 的评论`);
+  const handleLongPressComment = (htmlContent: string, authorName: string) => {
+    setCommentAction({ htmlContent, authorName });
   };
 
   const renderComment = ({ item }: { item: CommentItem }) => {
     return (
       <BouncyButton
+        accessible={false}
         onLongPress={() =>
           handleLongPressComment(item.content, item.author.member.name)
         }
@@ -188,6 +183,7 @@ export default function CommentScreen() {
         style={{
           paddingHorizontal: 15,
           paddingVertical: 13,
+          borderRadius: 0,
           borderBottomWidth: StyleSheet.hairlineWidth,
           borderBottomColor: borderColor,
         }}
@@ -431,17 +427,17 @@ export default function CommentScreen() {
       </View>
 
       {/* 输入框：绝对定位 + 随键盘动画移动，避免 KAV 全屏占位导致收起后不归位的 bug */}
-      <Animated.View
+      <Reanimated.View
         style={[
           {
             position: 'absolute',
             left: 0,
             right: 0,
-            bottom: keyboardHeight,
             paddingHorizontal: 15,
             paddingBottom: insets.bottom > 0 ? insets.bottom : 12,
             paddingTop: 8,
           },
+          inputBarAnimatedStyle,
         ]}
         pointerEvents="box-none"
       >
@@ -519,7 +515,14 @@ export default function CommentScreen() {
             </BouncyButton>
           </View>
         </BlurView>
-      </Animated.View>
+      </Reanimated.View>
+
+      <CommentActionSheet
+        visible={commentAction !== null}
+        htmlContent={commentAction?.htmlContent ?? null}
+        authorName={commentAction?.authorName ?? null}
+        onClose={() => setCommentAction(null)}
+      />
     </View>
   );
 }

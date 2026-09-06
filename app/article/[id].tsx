@@ -3,14 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Animated,
-  Image,
-  Modal,
-  Pressable,
-  StyleSheet,
-} from 'react-native';
+import { ActivityIndicator, Animated, Image, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getArticle, getDailyDetail } from '@/api/zhihu';
 import {
@@ -25,9 +18,10 @@ import {
 } from '@/api/zhihu/column';
 import { addReadHistory } from '@/api/zhihu/history';
 import { followMember, unfollowMember } from '@/api/zhihu/member';
+import { BouncyButton } from '@/components/BouncyButton';
 import { DownvoteButton } from '@/components/DownvoteButton';
 import { LikeButton } from '@/components/LikeButton';
-import { MenuOption } from '@/components/MenuOption';
+import { ActionSheet } from '@/components/overlays/ActionSheet';
 import { ShareMenu } from '@/components/ShareMenu';
 import { Text, ThemedIcon, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -36,6 +30,7 @@ import { ZhihuContent } from '@/features/rich-content';
 import { useOptimisticToggle } from '@/hooks/useOptimisticToggle';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import type { ZhihuArticle } from '@/types/zhihu';
 import { formatDate } from '@/utils/date';
 import { showToast } from '@/utils/toast';
 
@@ -48,7 +43,6 @@ export default function ArticleDetail() {
   const router = useRouter();
 
   const isDaily = source === 'daily';
-  const surfaceColor = Colors[colorScheme].surface;
   const textColor = Colors[colorScheme].text;
   const isDark = colorScheme === 'dark';
 
@@ -142,7 +136,8 @@ export default function ArticleDetail() {
   });
 
   // 4. 关注作者逻辑
-  const followMutation = useOptimisticToggle({
+  const followMutation = useOptimisticToggle<ZhihuArticle>({
+    queryKey: ['zhihu-article', id],
     mutationFn: async () => {
       if (data?.author?.is_following) {
         return unfollowMember(data.author.url_token || data.author.id);
@@ -150,8 +145,16 @@ export default function ArticleDetail() {
       return followMember(data.author.url_token || data.author.id);
     },
     isActive: data?.author?.is_following,
+    onUpdateCache: (old) => ({
+      ...old,
+      author: old.author
+        ? {
+            ...old.author,
+            is_following: !old.author.is_following,
+          }
+        : old.author,
+    }),
     successMessage: (isActive) => (isActive ? '已取消关注' : '已关注'),
-    invalidateQueries: [['zhihu-article', id]],
   });
 
   // 5. 获取专栏卡片信息
@@ -220,7 +223,7 @@ export default function ArticleDetail() {
         <Text type="secondary" className="text-xs text-center mb-6">
           该文章可能已被删除、失效或暂不可见 喵~
         </Text>
-        <Pressable
+        <BouncyButton
           onPress={() => router.back()}
           className="px-4 py-2 rounded-full"
           style={{ backgroundColor: primaryTransparent }}
@@ -228,7 +231,7 @@ export default function ArticleDetail() {
           <Text className="text-xs font-bold" style={{ color: primaryColor }}>
             返回上一页
           </Text>
-        </Pressable>
+        </BouncyButton>
       </View>
     );
   }
@@ -253,7 +256,7 @@ export default function ArticleDetail() {
           style={[
             StyleSheet.absoluteFillObject,
             {
-              backgroundColor: isDark ? '#1a1a1a' : '#ffffff',
+              backgroundColor: Colors[colorScheme].backgroundSecondary,
               opacity: headerBgOpacity,
               borderBottomWidth: StyleSheet.hairlineWidth,
               borderBottomColor: isDark
@@ -264,12 +267,12 @@ export default function ArticleDetail() {
           pointerEvents="none"
         />
 
-        <Pressable
+        <BouncyButton
           onPress={() => router.back()}
-          className="w-10 h-10 justify-center items-center z-50"
+          className="w-10 h-10 justify-center items-center z-50 rounded-full"
         >
           <Ionicons name="chevron-back" size={28} color={textColor} />
-        </Pressable>
+        </BouncyButton>
 
         <Animated.View
           className="flex-1 mx-4"
@@ -285,12 +288,12 @@ export default function ArticleDetail() {
           </Text>
         </Animated.View>
 
-        <Pressable
+        <BouncyButton
           onPress={() => setIsSharing(true)}
-          className="w-10 h-10 justify-center items-center z-50"
+          className="w-10 h-10 justify-center items-center z-50 rounded-full"
         >
           <Ionicons name="share-outline" size={24} color={textColor} />
-        </Pressable>
+        </BouncyButton>
       </View>
 
       <Animated.ScrollView
@@ -336,7 +339,7 @@ export default function ArticleDetail() {
               {data.title}
             </Text>
             <View className="flex-row items-center justify-between bg-transparent mt-2">
-              <Pressable
+              <BouncyButton
                 onPress={goToProfile}
                 className="flex-row items-center flex-1 bg-transparent"
               >
@@ -350,14 +353,14 @@ export default function ArticleDetail() {
                   </Text>
                   <Text
                     type="secondary"
-                    className="text-[13px] text-[#999] mt-0.5"
+                    className="text-[13px] text-tertiary dark:text-tertiary-dark mt-0.5"
                     numberOfLines={1}
                   >
                     {data.author?.headline}
                   </Text>
                 </View>
-              </Pressable>
-              <Pressable
+              </BouncyButton>
+              <BouncyButton
                 className="px-[15px] py-1.5 rounded-[20px]"
                 style={[
                   !data.author?.is_following
@@ -381,7 +384,7 @@ export default function ArticleDetail() {
                 >
                   {data.author?.is_following ? '已关注' : '关注'}
                 </Text>
-              </Pressable>
+              </BouncyButton>
             </View>
           </View>
         )}
@@ -399,7 +402,7 @@ export default function ArticleDetail() {
         {!isDaily && columnCard && (
           <View className="px-5 mt-8 mb-4 bg-transparent">
             <Text className="text-sm font-bold mb-3">收录于专栏</Text>
-            <Pressable
+            <BouncyButton
               onPress={() => router.push(`/column/${columnCard.id}`)}
               className="flex-row items-center p-4 rounded-xl border"
               style={{
@@ -423,7 +426,7 @@ export default function ArticleDetail() {
                   {columnCard.extra || `${columnCard.intro || '知乎专栏'}`}
                 </Text>
               </View>
-              <Pressable
+              <BouncyButton
                 onPress={(e) => {
                   e.stopPropagation();
                   columnFollowMutation.mutate();
@@ -445,14 +448,14 @@ export default function ArticleDetail() {
                   style={{
                     color: columnCard.is_following
                       ? Colors[colorScheme].textSecondary
-                      : '#fff',
+                      : Colors[colorScheme].textInverse,
                   }}
                   className="font-bold text-sm"
                 >
                   {columnCard.is_following ? '已关注' : '关注'}
                 </Text>
-              </Pressable>
-            </Pressable>
+              </BouncyButton>
+            </BouncyButton>
           </View>
         )}
 
@@ -505,8 +508,8 @@ export default function ArticleDetail() {
                 />
               </View>
               <View className="flex-1 flex-row justify-end items-center bg-transparent">
-                <Pressable
-                  className="items-center ml-5 flex-row bg-transparent"
+                <BouncyButton
+                  className="items-center justify-center ml-3 p-2 flex-row rounded-full bg-transparent"
                   onPress={() => router.push(`/comments/${id}?type=article`)}
                 >
                   <ThemedIcon
@@ -522,9 +525,9 @@ export default function ArticleDetail() {
                       {data.comment_count}
                     </Text>
                   )}
-                </Pressable>
-                <Pressable
-                  className="items-center ml-5 flex-row bg-transparent"
+                </BouncyButton>
+                <BouncyButton
+                  className="items-center justify-center ml-3 p-2 flex-row rounded-full bg-transparent"
                   onPress={() => setMenuVisible(true)}
                 >
                   <ThemedIcon
@@ -532,7 +535,7 @@ export default function ArticleDetail() {
                     size={24}
                     colorType="secondary"
                   />
-                </Pressable>
+                </BouncyButton>
               </View>
             </View>
           </BlurView>
@@ -557,67 +560,33 @@ export default function ArticleDetail() {
         }
       />
 
-      {/* Options Menu Modal */}
-      {menuVisible && !isSharing && (
-        <Modal
-          visible={menuVisible && !isSharing}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setMenuVisible(false)}
-        >
-          <Pressable
-            className="flex-1 justify-end bg-black/40"
-            onPress={() => setMenuVisible(false)}
-          >
-            <View
-              className="rounded-t-[24px] px-5 pt-2.5"
-              style={{
-                backgroundColor: surfaceColor,
-                paddingBottom: insets.bottom + 20,
-              }}
-            >
-              <View className="items-center py-2.5 bg-transparent">
-                <View className="w-10 h-1.5 rounded-[3px] bg-[#ddd]" />
-              </View>
-
-              <View className="py-2.5 bg-transparent">
-                <MenuOption
-                  icon={isLiked ? 'heart' : 'heart-outline'}
-                  label={isLiked ? '取消喜欢' : '加入喜欢'}
-                  color={isLiked ? Colors[colorScheme].danger : undefined}
-                  onPress={() => {
-                    setIsLiked(!isLiked);
-                    setMenuVisible(false);
-                  }}
-                />
-                <MenuOption
-                  icon={isCollected ? 'star' : 'star-outline'}
-                  label={isCollected ? '取消收藏' : '移至收藏'}
-                  color={isCollected ? warningColor : undefined}
-                  onPress={() => {
-                    collectMutation.mutate();
-                    setMenuVisible(false);
-                  }}
-                />
-                <MenuOption
-                  icon="share-social-outline"
-                  label="分享文章"
-                  onPress={() => {
-                    setIsSharing(true);
-                    setMenuVisible(false);
-                  }}
-                />
-              </View>
-              <Pressable
-                className="py-[18px] mt-2.5 items-center"
-                onPress={() => setMenuVisible(false)}
-              >
-                <Text className="text-base font-bold">取消</Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Modal>
-      )}
+      <ActionSheet
+        visible={menuVisible && !isSharing}
+        onClose={() => setMenuVisible(false)}
+        title="文章操作"
+        options={[
+          {
+            key: 'like',
+            icon: isLiked ? 'heart' : 'heart-outline',
+            label: isLiked ? '取消喜欢' : '加入喜欢',
+            color: isLiked ? Colors[colorScheme].danger : undefined,
+            onPress: () => setIsLiked(!isLiked),
+          },
+          {
+            key: 'collection',
+            icon: isCollected ? 'star' : 'star-outline',
+            label: isCollected ? '取消收藏' : '移至收藏',
+            color: isCollected ? warningColor : undefined,
+            onPress: () => collectMutation.mutate(),
+          },
+          {
+            key: 'share',
+            icon: 'share-social-outline',
+            label: '分享文章',
+            onPress: () => setIsSharing(true),
+          },
+        ]}
+      />
     </View>
   );
 }

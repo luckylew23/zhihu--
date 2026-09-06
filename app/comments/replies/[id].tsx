@@ -8,11 +8,10 @@ import {
 } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   Image,
   Keyboard,
   Platform,
@@ -20,6 +19,11 @@ import {
   TextInput,
   useWindowDimensions,
 } from 'react-native';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   type CommentItem,
@@ -28,14 +32,13 @@ import {
   getComment,
 } from '@/api/zhihu';
 import { BouncyButton } from '@/components/BouncyButton';
+import { CommentActionSheet } from '@/components/CommentActionSheet';
 import { CommentContent } from '@/components/CommentContent';
 import { LikeButton } from '@/components/LikeButton';
 import { Text, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { copyToClipboard } from '@/utils/clipboard';
 import { formatDate } from '@/utils/date';
-import { showToast } from '@/utils/toast';
 
 export default function ReplyDetailScreen() {
   const { id, parent } = useLocalSearchParams<{
@@ -46,6 +49,10 @@ export default function ReplyDetailScreen() {
   const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(
     null,
   );
+  const [commentAction, setCommentAction] = useState<{
+    htmlContent: string;
+    authorName: string;
+  } | null>(null);
   const inputRef = useRef<TextInput>(null);
   const router = useRouter();
   const _queryClient = useQueryClient();
@@ -60,26 +67,22 @@ export default function ReplyDetailScreen() {
   const insets = _insets;
 
   // 键盘高度动画：解决键盘收起后输入框无法回到底部的 bug
-  const keyboardHeight = React.useRef(new Animated.Value(0)).current;
+  const keyboardHeight = useSharedValue(0);
   useEffect(() => {
     const show = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e) => {
-        Animated.timing(keyboardHeight, {
-          toValue: e.endCoordinates.height,
+        keyboardHeight.value = withTiming(e.endCoordinates.height, {
           duration: Platform.OS === 'ios' ? e.duration || 250 : 200,
-          useNativeDriver: false,
-        }).start();
+        });
       },
     );
     const hide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       (e) => {
-        Animated.timing(keyboardHeight, {
-          toValue: 0,
+        keyboardHeight.value = withTiming(0, {
           duration: Platform.OS === 'ios' ? e.duration || 250 : 200,
-          useNativeDriver: false,
-        }).start();
+        });
       },
     );
     return () => {
@@ -87,6 +90,10 @@ export default function ReplyDetailScreen() {
       hide.remove();
     };
   }, [keyboardHeight]);
+
+  const inputBarAnimatedStyle = useAnimatedStyle(() => ({
+    bottom: keyboardHeight.value,
+  }));
 
   const INPUT_BAR_HEIGHT = 60;
 
@@ -159,31 +166,20 @@ export default function ReplyDetailScreen() {
     if (urlToken) router.push(`/user/${urlToken}`);
   };
 
-  // 提取 HTML 评论的纯文本（用于长按复制）
-  const extractPlainText = (html: string) => {
-    const imageRegex =
-      /<a[^>]+class="comment_img"[^>]*href="([^"]+)"[^>]*>.*?<\/a>|<a[^>]+href="([^"]+)"[^>]*class="comment_img"[^>]*>.*?<\/a>/gi;
-    return html
-      .replace(imageRegex, '[\u56fe\u7247]')
-      .replace(/<[^>]+>/g, '')
-      .trim();
-  };
-
-  const handleLongPressComment = async (html: string, authorName: string) => {
-    const text = extractPlainText(html);
-    if (!text) return;
-    const ok = await copyToClipboard(text);
-    if (ok) showToast(`已复制 @${authorName} 的评论`);
+  const handleLongPressComment = (htmlContent: string, authorName: string) => {
+    setCommentAction({ htmlContent, authorName });
   };
 
   const renderReply = ({ item }: { item: CommentItem }) => {
     return (
       <BouncyButton
+        accessible={false}
         onLongPress={() =>
           handleLongPressComment(item.content, item.author.member.name)
         }
         delayLongPress={400}
         style={{
+          borderRadius: 0,
           borderBottomWidth: StyleSheet.hairlineWidth,
           borderBottomColor: borderColor,
         }}
@@ -288,7 +284,18 @@ export default function ReplyDetailScreen() {
           borderBottomColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5',
         }}
       >
-        <View className="flex-row p-[15px] bg-transparent">
+        <BouncyButton
+          accessible={false}
+          className="flex-row p-[15px] bg-transparent"
+          style={{ borderRadius: 0 }}
+          onLongPress={() =>
+            handleLongPressComment(
+              parentComment.content,
+              parentComment.author.member.name,
+            )
+          }
+          delayLongPress={400}
+        >
           <BouncyButton
             onPress={() =>
               goToProfile(
@@ -368,7 +375,7 @@ export default function ReplyDetailScreen() {
               </View>
             </View>
           </View>
-        </View>
+        </BouncyButton>
         <View
           className="px-[15px] py-2.5 bg-transparent"
           style={{
@@ -426,17 +433,17 @@ export default function ReplyDetailScreen() {
       </View>
 
       {/* 输入框：绝对定位 + 随键盘动画移动 */}
-      <Animated.View
+      <Reanimated.View
         style={[
           {
             position: 'absolute',
             left: 0,
             right: 0,
-            bottom: keyboardHeight,
             paddingHorizontal: 15,
             paddingBottom: insets.bottom > 0 ? insets.bottom : 12,
             paddingTop: 8,
           },
+          inputBarAnimatedStyle,
         ]}
         pointerEvents="box-none"
       >
@@ -512,7 +519,14 @@ export default function ReplyDetailScreen() {
             </BouncyButton>
           </View>
         </BlurView>
-      </Animated.View>
+      </Reanimated.View>
+
+      <CommentActionSheet
+        visible={commentAction !== null}
+        htmlContent={commentAction?.htmlContent ?? null}
+        authorName={commentAction?.authorName ?? null}
+        onClose={() => setCommentAction(null)}
+      />
     </View>
   );
 }

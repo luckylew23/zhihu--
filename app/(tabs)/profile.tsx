@@ -1,34 +1,39 @@
 import { Ionicons } from '@expo/vector-icons';
-import CookieManager from '@react-native-cookies/cookies';
+import CookieManager from '@preeternal/react-native-cookie-manager';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import * as Haptics from 'expo-haptics';
-import { useFocusEffect, useRouter } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
+import { useRouter } from 'expo-router';
 import React from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
-  Modal,
-  Pressable,
   RefreshControl,
   ScrollView,
-  Switch,
 } from 'react-native';
-import { getMe, getMember } from '@/api/zhihu';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getMe, getMemberWithFallback } from '@/api/zhihu';
 import { BouncyButton } from '@/components/BouncyButton';
+import { BottomSheet } from '@/components/overlays/BottomSheet';
+import { QueryErrorView } from '@/components/QueryErrorView';
 import { Text, useThemeColor, View } from '@/components/Themed';
+import { ThemeModeSelector } from '@/components/ThemeModeSelector';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { useThemeStore } from '@/store/useThemeStore';
 import { useVerificationStore } from '@/store/useVerificationStore';
+import { syncNativeSessionCookies } from '@/utils/authSession';
+import { ImpactFeedbackStyle, impactAsync } from '@/utils/haptics';
 
-export default function ProfileScreen() {
+interface ProfileScreenProps {
+  isActive?: boolean;
+}
+
+export default function ProfileScreen({ isActive = true }: ProfileScreenProps) {
   const colorScheme = useColorScheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { isDark, toggleTheme } = useThemeStore();
   const accentColor = useThemeColor({}, 'primary');
   const accentBgColor = useThemeColor({}, 'primaryTransparent');
   const _surfaceColor = Colors[colorScheme].surface;
@@ -44,84 +49,116 @@ export default function ProfileScreen() {
   } = useAuthStore();
 
   const [accountModalVisible, setAccountModalVisible] = React.useState(false);
+  const [sessionChanging, setSessionChanging] = React.useState(false);
+  const sessionChangeInFlight = React.useRef(false);
 
   const {
     data: me,
     isLoading: isMeLoading,
+    isFetching: isMeFetching,
+    isError: isMeError,
     refetch: refetchMe,
   } = useQuery({
     queryKey: ['me'],
-    queryFn: () => getMe(),
+    queryFn: async () => {
+      const fetchedMe = await getMe();
+      const authState = useAuthStore.getState();
+      // Complete the one-time SecureStore migration as a normal account once
+      // the authenticated member payload is available.
+      if (cookies && authState.cookies === cookies && !authState.me) {
+        authState.addAccount(cookies, fetchedMe);
+      }
+      return fetchedMe;
+    },
     enabled: !!cookies,
   });
 
+  const memberId = me?.url_token || me?.id;
+
   const {
     data: member,
-    isLoading: isMemberLoading,
-    refetch: refetchMember,
+    isFetching: isMemberFetching,
+    isError: isMemberError,
   } = useQuery({
-    queryKey: ['me-detail', me?.url_token || me?.id],
-    queryFn: () => getMember((me?.url_token || me?.id) as string),
-    enabled: !!(me?.url_token || me?.id),
+    queryKey: ['me-detail', memberId],
+    queryFn: () => getMemberWithFallback(memberId as string),
+    enabled: !!memberId,
   });
 
   const profile = member || me;
 
-  const isLoading = isMeLoading || isMemberLoading;
-  const refetch = React.useCallback(() => {
-    refetchMe();
-    refetchMember();
-  }, [refetchMe, refetchMember]);
+  const isRefreshing = isMeFetching || isMemberFetching;
+  const refreshProfile = React.useCallback(async () => {
+    if (!cookies) return;
+    const meResult = await refetchMe();
+    const refreshedMemberId = meResult.data?.url_token || meResult.data?.id;
+    if (!refreshedMemberId) return;
+    try {
+      await queryClient.fetchQuery({
+        queryKey: ['me-detail', refreshedMemberId],
+        queryFn: () => getMemberWithFallback(refreshedMemberId),
+      });
+    } catch {
+      // The member query exposes its own retry UI below.
+    }
+  }, [cookies, queryClient, refetchMe]);
 
   const unreadCount =
-    (profile?.default_notifications_count || 0) +
-    (profile?.follow_notifications_count || 0) +
-    (profile?.vote_thank_notifications_count || 0);
+    (me?.default_notifications_count || 0) +
+    (me?.follow_notifications_count || 0) +
+    (me?.vote_thank_notifications_count || 0);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      if (cookies) refetch();
-    }, [cookies, refetch]),
+  const wasActive = React.useRef(isActive);
+  React.useEffect(() => {
+    if (isActive && !wasActive.current && cookies) {
+      void refreshProfile();
+    }
+    wasActive.current = isActive;
+  }, [cookies, isActive, refreshProfile]);
+
+  const syncSessionWithFeedback = React.useCallback(
+    async (targetCookies: string | null) => {
+      try {
+        await syncNativeSessionCookies(targetCookies);
+      } catch {
+        Alert.alert(
+          '会话同步失败',
+          '账号已经切换，但网页登录状态未能同步。请稍后重试或重新登录。',
+        );
+      }
+    },
+    [],
   );
 
-  // 封装：同步原生层的 Session 状态（SecureStore 和 CookieManager）
-  const syncNativeSession = async (cookieString: string | null) => {
-    if (cookieString) {
-      try {
-        if (cookieString.length < 2000) {
-          await SecureStore.setItemAsync('user_cookies', cookieString);
-        }
-      } catch (e) {
-        console.warn('⚠️ 无法同步 Cookie 到 SecureStore:', e);
-      }
-      await CookieManager.clearAll(true);
-      const cookiePairs = cookieString.split(';');
-      for (const pair of cookiePairs) {
-        const trimmedPair = pair.trim();
-        if (!trimmedPair) continue;
-        const equalIndex = trimmedPair.indexOf('=');
-        if (equalIndex > 0) {
-          const name = trimmedPair.substring(0, equalIndex);
-          const value = trimmedPair.substring(equalIndex + 1);
-          if (name && value) {
-            await CookieManager.set(
-              'https://www.zhihu.com',
-              {
-                name,
-                value,
-                domain: '.zhihu.com',
-                path: '/',
-              },
-              true,
-            );
-          }
-        }
-      }
-    } else {
-      await SecureStore.deleteItemAsync('user_cookies');
-      await CookieManager.clearAll(true);
+  const performLogout = React.useCallback(async () => {
+    if (sessionChangeInFlight.current) return;
+    sessionChangeInFlight.current = true;
+    setSessionChanging(true);
+    useVerificationStore.getState().hide();
+
+    const remainingAccounts = accounts.filter(
+      (_, index) => index !== activeAccountIndex,
+    );
+    const nextCookies = remainingAccounts[0]?.cookies ?? null;
+
+    logout();
+    queryClient.clear();
+    setAccountModalVisible(false);
+    await syncSessionWithFeedback(nextCookies);
+
+    sessionChangeInFlight.current = false;
+    setSessionChanging(false);
+    if (remainingAccounts.length === 0) {
+      router.replace('/login');
     }
-  };
+  }, [
+    accounts,
+    activeAccountIndex,
+    logout,
+    queryClient,
+    router,
+    syncSessionWithFeedback,
+  ]);
 
   const handleLogout = () => {
     Alert.alert('退出登录', '确定要退出当前账号吗喵？', [
@@ -129,47 +166,33 @@ export default function ProfileScreen() {
       {
         text: '确定退出',
         style: 'destructive',
-        onPress: async () => {
-          useVerificationStore.getState().hide();
-
-          const remainingAccounts = accounts.filter(
-            (_, i) => i !== activeAccountIndex,
-          );
-
-          // 核心：注销时如果要切换到下一个账号，必须同步原生状态
-          if (remainingAccounts.length > 0) {
-            await syncNativeSession(remainingAccounts[0].cookies);
-          } else {
-            await syncNativeSession(null);
-          }
-
-          logout();
-          queryClient.clear();
-
-          if (remainingAccounts.length === 0) {
-            router.replace('/login');
-          }
-        },
+        onPress: () => void performLogout(),
       },
     ]);
   };
 
   const handleSwitchAccount = async (index: number) => {
-    if (index === activeAccountIndex) return;
+    if (index === activeAccountIndex || sessionChangeInFlight.current) return;
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void impactAsync(ImpactFeedbackStyle.Medium);
     useVerificationStore.getState().hide();
+    sessionChangeInFlight.current = true;
+    setSessionChanging(true);
 
-    if (index === -1) {
-      await syncNativeSession(null);
-    } else {
-      const targetAccount = accounts[index];
-      await syncNativeSession(targetAccount.cookies);
+    const targetCookies: string | null =
+      index === -1 ? null : (accounts[index]?.cookies ?? null);
+    if (index !== -1 && !targetCookies) {
+      sessionChangeInFlight.current = false;
+      setSessionChanging(false);
+      return;
     }
 
     switchAccount(index);
     queryClient.clear();
     setAccountModalVisible(false);
+    await syncSessionWithFeedback(targetCookies);
+    sessionChangeInFlight.current = false;
+    setSessionChanging(false);
   };
 
   const handleRemoveAccount = (index: number) => {
@@ -179,10 +202,9 @@ export default function ProfileScreen() {
       {
         text: '确定移除',
         style: 'destructive',
-        onPress: async () => {
+        onPress: () => {
           if (index === activeAccountIndex) {
-            // 如果移除的是当前账号，走注销流程
-            handleLogout();
+            void performLogout();
           } else {
             removeAccount(index);
           }
@@ -192,16 +214,16 @@ export default function ProfileScreen() {
   };
 
   const handleAddAccount = async () => {
+    if (sessionChangeInFlight.current) return;
     setAccountModalVisible(false);
-    // When adding account, we don't clear current store yet,
-    // just navigate to login. Login will overwrite cookies.
-    await CookieManager.clearAll(true);
-    router.push('/login');
-  };
-
-  const onToggleTheme = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    toggleTheme();
+    // Keep the current app account selected, but start the login WebView with
+    // an empty native session. A successful login will write the new cookies.
+    try {
+      await CookieManager.clearAllStores();
+      router.push('/login');
+    } catch {
+      Alert.alert('无法添加账号', '清理网页登录状态失败，请稍后重试。');
+    }
   };
 
   return (
@@ -209,22 +231,26 @@ export default function ProfileScreen() {
       className="flex-1"
       refreshControl={
         <RefreshControl
-          refreshing={isLoading}
-          onRefresh={refetch}
+          refreshing={isRefreshing}
+          onRefresh={() => void refreshProfile()}
           tintColor={accentColor}
         />
       }
     >
       {/* 顶部用户信息区 */}
-      <View type="surface" className="pt-[60px] px-5 pb-5 rounded-b-[24px]">
+      <View
+        type="surface"
+        className="px-5 pb-5 rounded-b-[24px]"
+        style={{ paddingTop: insets.top + 20 }}
+      >
         {me ? (
-          <Pressable
+          <BouncyButton
             className="flex-row items-center mb-[25px]"
             onPress={() => router.push(`/user/${me.url_token || me.id}`)}
           >
             <Image
               source={{ uri: me.avatar_url }}
-              className="w-16 h-16 rounded-full bg-[#eee]"
+              className="w-16 h-16 rounded-full bg-surface-tertiary dark:bg-surface-tertiary-dark"
             />
             <View className="flex-1 ml-[15px] bg-transparent">
               <Text className="text-[22px] font-bold">{me.name}</Text>
@@ -236,15 +262,33 @@ export default function ProfileScreen() {
                 {me.headline || '点击查看个人主页'}
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#ccc" />
-          </Pressable>
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={Colors[colorScheme].tabIconDefault}
+            />
+          </BouncyButton>
+        ) : cookies && isMeLoading ? (
+          <View className="h-24 items-center justify-center bg-transparent">
+            <ActivityIndicator color={accentColor} />
+          </View>
+        ) : cookies && isMeError ? (
+          <QueryErrorView
+            compact
+            message="个人资料加载失败"
+            onRetry={() => void refreshProfile()}
+          />
         ) : (
-          <Pressable
+          <BouncyButton
             className="flex-row items-center mb-[25px]"
             onPress={() => router.push('/login')}
           >
-            <View className="w-16 h-16 rounded-full border border-[#eee] justify-center items-center">
-              <Ionicons name="person" size={40} color="#ccc" />
+            <View className="w-16 h-16 rounded-full border border-border dark:border-border-dark justify-center items-center">
+              <Ionicons
+                name="person"
+                size={40}
+                color={Colors[colorScheme].tabIconDefault}
+              />
             </View>
             <View className="flex-1 ml-[15px] bg-transparent">
               <Text className="text-[22px] font-bold">点击登录</Text>
@@ -252,7 +296,7 @@ export default function ProfileScreen() {
                 登录后开启更多精彩内容
               </Text>
             </View>
-          </Pressable>
+          </BouncyButton>
         )}
 
         {/* 数据战绩统计 */}
@@ -261,18 +305,24 @@ export default function ProfileScreen() {
             count={profile?.answer_count || 0}
             label="回答"
             onPress={() =>
-              profile && router.push(`/user/${profile.url_token || profile.id}`)
+              profile &&
+              router.push(
+                `/user/${profile.url_token || profile.id}?tab=answers`,
+              )
             }
           />
           <StatItem
             count={profile?.articles_count || 0}
             label="文章"
             onPress={() =>
-              profile && router.push(`/user/${profile.url_token || profile.id}`)
+              profile &&
+              router.push(
+                `/user/${profile.url_token || profile.id}?tab=articles`,
+              )
             }
           />
           <StatItem
-            count={profile?.following_count || 0}
+            count={member?.following_count || 0}
             label="关注"
             onPress={() =>
               profile &&
@@ -280,7 +330,7 @@ export default function ProfileScreen() {
             }
           />
           <StatItem
-            count={profile?.follower_count || 0}
+            count={member?.follower_count || 0}
             label="粉丝"
             onPress={() =>
               profile &&
@@ -288,6 +338,16 @@ export default function ProfileScreen() {
             }
           />
         </View>
+        {me && isMemberError ? (
+          <BouncyButton
+            className="items-center mt-3 bg-transparent"
+            onPress={() => void refreshProfile()}
+          >
+            <Text type="secondary" className="text-xs">
+              详细统计加载失败，点此重试
+            </Text>
+          </BouncyButton>
+        ) : null}
       </View>
 
       {/* 我的资产 */}
@@ -295,69 +355,49 @@ export default function ProfileScreen() {
         <MenuItem
           icon="bookmark-outline"
           title="我的收藏"
-          color="#ff9800"
-          onPress={() => router.push('/collections' as any)}
+          color={Colors[colorScheme].warning}
+          onPress={() => router.push('/collections')}
         />
         <MenuItem
           icon="time-outline"
           title="最近浏览"
-          color="#2196f3"
-          onPress={() => router.push('/history' as any)}
+          color={accentColor}
+          onPress={() => router.push('/history')}
         />
       </View>
 
       {/* 通用设置 */}
       <View type="surface" className="rounded-2xl mx-3 mt-3 overflow-hidden">
-        <View className="flex-row items-center justify-between py-[15px] px-4 bg-transparent">
-          <View className="flex-row items-center bg-transparent">
-            <View
-              className="w-9 h-9 rounded-lg justify-center items-center"
-              style={{
-                backgroundColor: isDark
-                  ? 'rgba(255,255,255,0.1)'
-                  : 'rgba(0,0,0,0.05)',
-              }}
-            >
-              <Ionicons
-                name={isDark ? 'moon' : 'sunny'}
-                size={20}
-                color={isDark ? '#ffcf40' : '#ff9800'}
-              />
-            </View>
-            <Text className="text-base ml-3 font-medium">夜间模式</Text>
-          </View>
-          <Switch
-            value={isDark}
-            onValueChange={onToggleTheme}
-            trackColor={{ false: '#ddd', true: accentColor }}
-            thumbColor="#fff"
-          />
-        </View>
+        <ThemeModeSelector />
 
         <MenuItem
           icon="color-palette-outline"
           title="外观与定制"
           color={accentColor}
-          onPress={() => router.push('/settings/appearance' as any)}
+          onPress={() => router.push('/settings/appearance')}
         />
         <MenuItem
           icon="filter-outline"
           title="过滤与推荐"
           color={accentColor}
-          onPress={() => router.push('/settings/filter' as any)}
+          onPress={() => router.push('/settings/filter')}
         />
 
         <MenuItem
           icon="notifications-outline"
           title="消息通知"
-          onPress={() => router.push('/notifications' as any)}
+          onPress={() => router.push('/notifications')}
           right={
             unreadCount > 0 ? (
               <View className="flex-row items-center bg-transparent">
                 <Text className="bg-[#ff4d4f] text-white text-xs font-bold px-1.5 py-0.5 rounded-[10px] overflow-hidden mr-1">
                   {unreadCount > 99 ? '99+' : unreadCount}
                 </Text>
-                <Ionicons name="chevron-forward" size={16} color="#ccc" />
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={Colors[colorScheme].tabIconDefault}
+                />
               </View>
             ) : undefined
           }
@@ -367,7 +407,7 @@ export default function ProfileScreen() {
             icon="chatbubbles-outline"
             title="我的私信"
             color="#4caf50"
-            onPress={() => router.push('/inbox' as any)}
+            onPress={() => router.push('/inbox')}
           />
         )}
         <MenuItem
@@ -379,7 +419,11 @@ export default function ProfileScreen() {
               <Text type="secondary" className="mr-1 text-[13px]">
                 {accounts.length} 个账号
               </Text>
-              <Ionicons name="chevron-forward" size={16} color="#ccc" />
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={Colors[colorScheme].tabIconDefault}
+              />
             </View>
           }
         />
@@ -392,114 +436,47 @@ export default function ProfileScreen() {
 
       {/* 退出登录按钮 */}
       {me && (
-        <Pressable
+        <BouncyButton
           className="mt-[30px] py-[15px] items-center"
           onPress={handleLogout}
+          disabled={sessionChanging}
         >
           <Text className="text-[#ff4d4f] text-base font-semibold">
             退出账号
           </Text>
-        </Pressable>
+        </BouncyButton>
       )}
 
       <View className="h-[100px] bg-transparent" />
 
-      {/* 账号切换 Modal */}
-      <Modal
+      <BottomSheet
         visible={accountModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setAccountModalVisible(false)}
+        onClose={() => setAccountModalVisible(false)}
+        title="切换账号"
+        maxHeight="78%"
       >
-        <Pressable
-          className="flex-1 justify-end bg-black/50"
-          onPress={() => setAccountModalVisible(false)}
-        >
-          <View
-            type="surface"
-            className="rounded-t-[24px] px-5 pt-3 pb-8"
-            style={{ maxHeight: '70%' }}
-          >
-            <View className="items-center mb-5 bg-transparent">
-              <View className="w-10 h-1.5 rounded-full bg-gray-300" />
-              <Text className="text-lg font-bold mt-4">切换账号</Text>
-            </View>
-
-            <ScrollView className="bg-transparent">
-              {accounts.map((account, index) => (
-                <View
-                  key={account.me?.id || index}
-                  className="flex-row items-center bg-transparent"
-                >
-                  <Pressable
-                    onPress={() => handleSwitchAccount(index)}
-                    className="flex-row items-center py-4 flex-1 border-b border-gray-100 dark:border-gray-800 bg-transparent"
-                  >
-                    <Image
-                      source={{ uri: account.me?.avatar_url }}
-                      className="w-12 h-12 rounded-full bg-[#eee]"
-                    />
-                    <View className="flex-1 ml-4 bg-transparent">
-                      <View className="flex-row items-center bg-transparent">
-                        <Text className="text-base font-bold">
-                          {account.me?.name}
-                        </Text>
-                        {index === activeAccountIndex && (
-                          <View
-                            className="ml-2 px-1.5 py-0.5 rounded"
-                            style={{
-                              backgroundColor: accentBgColor,
-                            }}
-                          >
-                            <Text
-                              className="text-[10px] font-bold"
-                              style={{ color: accentColor }}
-                            >
-                              当前
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text
-                        type="secondary"
-                        className="text-xs mt-1"
-                        numberOfLines={1}
-                      >
-                        {account.me?.headline || '知乎用户'}
-                      </Text>
-                    </View>
-                    {index === activeAccountIndex && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={22}
-                        color={accentColor}
-                      />
-                    )}
-                  </Pressable>
-                  <Pressable
-                    onPress={() => handleRemoveAccount(index)}
-                    className="pl-4 py-4"
-                  >
-                    <Ionicons name="trash-outline" size={20} color="#ff4d4f" />
-                  </Pressable>
-                </View>
-              ))}
-
-              {/* 游客模式 */}
-              <View className="flex-row items-center bg-transparent">
-                <Pressable
-                  onPress={() => handleSwitchAccount(-1)}
+        <View className="px-5 flex-shrink bg-transparent">
+          <ScrollView className="bg-transparent">
+            {accounts.map((account, index) => (
+              <View
+                key={account.me.id}
+                className="flex-row items-center bg-transparent"
+              >
+                <BouncyButton
+                  onPress={() => handleSwitchAccount(index)}
+                  disabled={sessionChanging}
                   className="flex-row items-center py-4 flex-1 border-b border-gray-100 dark:border-gray-800 bg-transparent"
                 >
-                  <View className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 justify-center items-center">
-                    <Ionicons name="person-outline" size={24} color="#666" />
-                  </View>
+                  <Image
+                    source={{ uri: account.me?.avatar_url }}
+                    className="w-12 h-12 rounded-full bg-surface-tertiary dark:bg-surface-tertiary-dark"
+                  />
                   <View className="flex-1 ml-4 bg-transparent">
                     <View className="flex-row items-center bg-transparent">
                       <Text className="text-base font-bold">
-                        游客模式 (未登录)
+                        {account.me?.name}
                       </Text>
-                      {activeAccountIndex === -1 && (
+                      {index === activeAccountIndex && (
                         <View
                           className="ml-2 px-1.5 py-0.5 rounded"
                           style={{
@@ -520,53 +497,112 @@ export default function ProfileScreen() {
                       className="text-xs mt-1"
                       numberOfLines={1}
                     >
-                      不使用任何账号浏览
+                      {account.me?.headline || '知乎用户'}
                     </Text>
                   </View>
-                  {activeAccountIndex === -1 && (
+                  {index === activeAccountIndex && (
                     <Ionicons
                       name="checkmark-circle"
                       size={22}
                       color={accentColor}
                     />
                   )}
-                </Pressable>
-                <View className="pl-4 py-4">
-                  <Ionicons
-                    name="trash-outline"
-                    size={20}
-                    color="transparent"
-                  />
-                </View>
+                </BouncyButton>
+                <BouncyButton
+                  onPress={() => handleRemoveAccount(index)}
+                  disabled={sessionChanging}
+                  className="pl-4 py-4"
+                >
+                  <Ionicons name="trash-outline" size={20} color="#ff4d4f" />
+                </BouncyButton>
               </View>
+            ))}
 
-              <Pressable
-                onPress={handleAddAccount}
-                className="flex-row items-center py-5 bg-transparent"
+            {/* 游客模式 */}
+            <View className="flex-row items-center bg-transparent">
+              <BouncyButton
+                onPress={() => handleSwitchAccount(-1)}
+                disabled={sessionChanging}
+                className="flex-row items-center py-4 flex-1 border-b border-gray-100 dark:border-gray-800 bg-transparent"
               >
                 <View className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 justify-center items-center">
-                  <Ionicons name="add" size={28} color="#666" />
+                  <Ionicons name="person-outline" size={24} color="#666" />
                 </View>
-                <Text className="text-base ml-4 font-medium">添加账号</Text>
-              </Pressable>
-            </ScrollView>
+                <View className="flex-1 ml-4 bg-transparent">
+                  <View className="flex-row items-center bg-transparent">
+                    <Text className="text-base font-bold">
+                      游客模式 (未登录)
+                    </Text>
+                    {activeAccountIndex === -1 && (
+                      <View
+                        className="ml-2 px-1.5 py-0.5 rounded"
+                        style={{
+                          backgroundColor: accentBgColor,
+                        }}
+                      >
+                        <Text
+                          className="text-[10px] font-bold"
+                          style={{ color: accentColor }}
+                        >
+                          当前
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text
+                    type="secondary"
+                    className="text-xs mt-1"
+                    numberOfLines={1}
+                  >
+                    不使用任何账号浏览
+                  </Text>
+                </View>
+                {activeAccountIndex === -1 && (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={22}
+                    color={accentColor}
+                  />
+                )}
+              </BouncyButton>
+              <View className="pl-4 py-4">
+                <Ionicons name="trash-outline" size={20} color="transparent" />
+              </View>
+            </View>
 
-            <Pressable
-              onPress={() => setAccountModalVisible(false)}
-              className="mt-4 py-4 items-center bg-gray-100 dark:bg-gray-800 rounded-xl"
+            <BouncyButton
+              onPress={handleAddAccount}
+              disabled={sessionChanging}
+              className="flex-row items-center py-5 bg-transparent"
             >
-              <Text className="text-base font-bold">取消</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Modal>
+              <View className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 justify-center items-center">
+                <Ionicons name="add" size={28} color="#666" />
+              </View>
+              <Text className="text-base ml-4 font-medium">添加账号</Text>
+            </BouncyButton>
+          </ScrollView>
+
+          <BouncyButton
+            onPress={() => setAccountModalVisible(false)}
+            className="mt-4 py-4 items-center bg-gray-100 dark:bg-gray-800 rounded-2xl"
+          >
+            <Text className="text-base font-bold">取消</Text>
+          </BouncyButton>
+        </View>
+      </BottomSheet>
     </ScrollView>
   );
 }
 
-function StatItem({ count, label, onPress }: any) {
+interface StatItemProps {
+  count: number;
+  label: string;
+  onPress?: () => void;
+}
+
+function StatItem({ count, label, onPress }: StatItemProps) {
   return (
-    <Pressable
+    <BouncyButton
       onPress={onPress}
       disabled={!onPress}
       className="align-center flex-1 bg-transparent"
@@ -575,11 +611,25 @@ function StatItem({ count, label, onPress }: any) {
       <Text type="secondary" className="text-xs mt-1 text-center">
         {label}
       </Text>
-    </Pressable>
+    </BouncyButton>
   );
 }
 
-function MenuItem({ icon, title, color = '#666', right, onPress }: any) {
+interface MenuItemProps {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  title: string;
+  color?: string;
+  right?: React.ReactNode;
+  onPress: () => void;
+}
+
+function MenuItem({
+  icon,
+  title,
+  color = '#666',
+  right,
+  onPress,
+}: MenuItemProps) {
   return (
     <BouncyButton
       onPress={onPress}
@@ -597,7 +647,11 @@ function MenuItem({ icon, title, color = '#666', right, onPress }: any) {
       {right ? (
         right
       ) : (
-        <Ionicons name="chevron-forward" size={16} color="#ccc" />
+        <Ionicons
+          name="chevron-forward"
+          size={16}
+          color={Colors.light.tabIconDefault}
+        />
       )}
     </BouncyButton>
   );

@@ -6,16 +6,18 @@ import React, { useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   Image,
-  Modal,
-  Pressable,
-  ScrollView,
+  type ScrollView as NativeScrollView,
   StyleSheet,
 } from 'react-native';
-import { SharedTransition } from 'react-native-reanimated';
+import Reanimated, {
+  interpolate,
+  SharedTransition,
+  type SharedValue,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { deleteAnswer, getAnswer } from '@/api/zhihu';
+import { type AnswerDetail, deleteAnswer, getAnswer } from '@/api/zhihu';
 import {
   fastCollectAnswer,
   getAnswerCollectionStatus,
@@ -25,7 +27,7 @@ import { followMember, unfollowMember } from '@/api/zhihu/member';
 import { BouncyButton } from '@/components/BouncyButton';
 import { DownvoteButton } from '@/components/DownvoteButton';
 import { LikeButton } from '@/components/LikeButton';
-import { MenuOption } from '@/components/MenuOption';
+import { ActionSheet } from '@/components/overlays/ActionSheet';
 import { ShareMenu } from '@/components/ShareMenu';
 import { Text, ThemedIcon, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -44,6 +46,7 @@ interface AnswerDetailViewProps {
   initialTitle?: string;
   questionId?: string;
   onScroll?: (y: number) => void;
+  scrollY?: SharedValue<number>;
   isFocused?: boolean;
 }
 
@@ -51,20 +54,36 @@ export const AnswerDetailView = ({
   id,
   questionId,
   onScroll,
+  scrollY,
   isFocused = false,
 }: AnswerDetailViewProps) => {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const colorScheme = useColorScheme();
-  const surfaceColor = Colors[colorScheme].surface;
   const backgroundColor = Colors[colorScheme].background;
   const _textColor = Colors[colorScheme].text;
 
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const scrollViewRef = useRef<ScrollView>(null);
-  const { headerVisible, handleScroll: baseHandleScroll } =
-    useScrollHeaderAnim(300);
+  const scrollViewRef = useRef<NativeScrollView>(null);
+  const { headerVisible, handleScroll } = useScrollHeaderAnim(
+    300,
+    onScroll,
+    100,
+    scrollY,
+  );
+
+  const headerAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: headerVisible.value,
+    transform: [
+      {
+        translateY: interpolate(
+          headerVisible.value,
+          [0, 1],
+          [-insets.top - 50, 0],
+        ),
+      },
+    ],
+  }));
 
   const [isLiked, setIsLiked] = React.useState(false);
   const [menuVisible, setMenuVisible] = React.useState(false);
@@ -76,13 +95,6 @@ export const AnswerDetailView = ({
       setHasBeenFocused(true);
     }
   }, [isFocused, hasBeenFocused]);
-
-  const handleScrollInternal = (event: any) => {
-    baseHandleScroll(event, (currentY) => {
-      scrollY.setValue(currentY);
-      onScroll?.(currentY);
-    });
-  };
 
   const {
     data: answer,
@@ -99,7 +111,8 @@ export const AnswerDetailView = ({
       err?.response?.status === 404 ? false : failureCount < 2,
   });
 
-  const followMutation = useOptimisticToggle({
+  const followMutation = useOptimisticToggle<AnswerDetail>({
+    queryKey: ['answer-detail', id],
     mutationFn: async () => {
       const author = answer?.author;
       if (!author) throw new Error('回答尚未加载');
@@ -108,8 +121,14 @@ export const AnswerDetailView = ({
       return followMember(author.url_token || author.id);
     },
     isActive: answer?.author?.is_following,
+    onUpdateCache: (old) => ({
+      ...old,
+      author: {
+        ...old.author,
+        is_following: !old.author.is_following,
+      },
+    }),
     successMessage: (isActive) => (isActive ? '已取消关注' : '已关注'),
-    invalidateQueries: [['answer-detail', id]],
   });
 
   const deleteMutation = useMutation({
@@ -225,22 +244,14 @@ export const AnswerDetailView = ({
   return (
     <View className="flex-1">
       {/* Header (On Scroll) */}
-      <Animated.View
+      <Reanimated.View
         className="absolute left-0 right-0 z-10"
         style={[
           {
             backgroundColor,
             paddingTop: insets.top,
-            opacity: headerVisible,
-            transform: [
-              {
-                translateY: headerVisible.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [-insets.top - 50, 0],
-                }),
-              },
-            ],
           },
+          headerAnimatedStyle,
         ]}
       >
         <View
@@ -250,7 +261,7 @@ export const AnswerDetailView = ({
           <View className="w-10 bg-transparent" />
           <View className="flex-1 flex-col items-center bg-transparent">
             {/* 问题标题 */}
-            <Pressable
+            <BouncyButton
               onPress={() =>
                 router.push(`/question/${answer?.question?.id || questionId}`)
               }
@@ -263,10 +274,10 @@ export const AnswerDetailView = ({
               >
                 {answer?.question?.title || '加载中...'}
               </Text>
-            </Pressable>
+            </BouncyButton>
 
             {/* 用户头像 + 名字 */}
-            <Pressable
+            <BouncyButton
               onPress={goToProfile}
               className="flex-row items-center justify-center mt-1 bg-transparent"
             >
@@ -280,13 +291,13 @@ export const AnswerDetailView = ({
               >
                 {answer?.author?.name || '知乎用户'}
               </Text>
-            </Pressable>
+            </BouncyButton>
           </View>
           <View className="w-10 bg-transparent" />
         </View>
-      </Animated.View>
+      </Reanimated.View>
 
-      <ScrollView
+      <Reanimated.ScrollView
         ref={scrollViewRef}
         className="flex-1"
         style={{
@@ -296,14 +307,14 @@ export const AnswerDetailView = ({
               : 'rgba(255,255,255,0.9)',
         }}
         scrollEventThrottle={16}
-        onScroll={handleScrollInternal}
+        onScroll={handleScroll}
         contentContainerStyle={{
           paddingTop: insets.top + 76,
           paddingBottom: 100 + insets.bottom,
         }}
       >
         <View className="flex-row items-center px-5 pt-5 pb-4 justify-between bg-transparent">
-          <Pressable
+          <BouncyButton
             onPress={goToProfile}
             className="flex-row items-center flex-1 bg-transparent"
           >
@@ -323,8 +334,8 @@ export const AnswerDetailView = ({
                 {answer?.author?.headline}
               </Text>
             </View>
-          </Pressable>
-          <Pressable
+          </BouncyButton>
+          <BouncyButton
             className="px-[15px] py-1.5 rounded-[20px]"
             style={[
               !answer?.author?.is_following
@@ -348,7 +359,7 @@ export const AnswerDetailView = ({
             >
               {answer?.author?.is_following ? '已关注' : '关注'}
             </Text>
-          </Pressable>
+          </BouncyButton>
         </View>
 
         {queryLoading ? (
@@ -385,6 +396,7 @@ export const AnswerDetailView = ({
             <ZhihuContent
               content={answer?.content || ''}
               segmentInfos={answer?.segment_infos}
+              linkCardInfo={answer?.link_card_info}
               objectId={id}
               type="answer"
               onRefresh={refetch}
@@ -421,7 +433,7 @@ export const AnswerDetailView = ({
             </View>
           </View>
         )}
-      </ScrollView>
+      </Reanimated.ScrollView>
 
       {/* Footer Actions */}
       <View
@@ -457,8 +469,9 @@ export const AnswerDetailView = ({
               />
             </View>
             <View className="flex-1 flex-row justify-end items-center bg-transparent">
-              <Pressable
-                className="items-center ml-5 flex-row bg-transparent"
+              <BouncyButton
+                className="items-center justify-center ml-3 p-2 flex-row bg-transparent"
+                style={{ borderRadius: 99 }}
                 onPress={() => router.push(`/comments/${id}?type=answer`)}
               >
                 <ThemedIcon
@@ -474,9 +487,10 @@ export const AnswerDetailView = ({
                     {answer?.comment_count}
                   </Text>
                 )}
-              </Pressable>
-              <Pressable
-                className="items-center ml-5 flex-row bg-transparent"
+              </BouncyButton>
+              <BouncyButton
+                className="items-center justify-center ml-3 p-2 flex-row bg-transparent"
+                style={{ borderRadius: 99 }}
                 onPress={() => setMenuVisible(true)}
               >
                 <ThemedIcon
@@ -484,7 +498,7 @@ export const AnswerDetailView = ({
                   size={24}
                   colorType="secondary"
                 />
-              </Pressable>
+              </BouncyButton>
             </View>
           </View>
         </BlurView>
@@ -507,78 +521,44 @@ export const AnswerDetailView = ({
         }
       />
 
-      {/* 操作菜单 */}
-      {menuVisible && !isSharing && (
-        <Modal
-          visible={menuVisible && !isSharing}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setMenuVisible(false)}
-        >
-          <Pressable
-            className="flex-1 justify-end bg-black/40"
-            onPress={() => setMenuVisible(false)}
-          >
-            <View
-              className="rounded-t-[24px] px-5 pt-2.5"
-              style={{
-                backgroundColor: surfaceColor,
-                paddingBottom: insets.bottom + 20,
-              }}
-            >
-              <View className="items-center py-2.5 bg-transparent">
-                <View className="w-10 h-1.5 rounded-[3px] bg-[#ddd]" />
-              </View>
-
-              <View className="py-2.5 bg-transparent">
-                <MenuOption
-                  icon={isLiked ? 'heart' : 'heart-outline'}
-                  label={isLiked ? '取消喜欢' : '加入喜欢'}
-                  color={isLiked ? Colors[colorScheme].danger : undefined}
-                  onPress={() => {
-                    setIsLiked(!isLiked);
-                    setMenuVisible(false);
-                  }}
-                />
-                <MenuOption
-                  icon={isCollected ? 'star' : 'star-outline'}
-                  label={isCollected ? '取消收藏' : '移至收藏'}
-                  color={isCollected ? warningColor : undefined}
-                  onPress={() => {
-                    collectMutation.mutate();
-                    setMenuVisible(false);
-                  }}
-                />
-                <MenuOption
-                  icon="share-social-outline"
-                  label="分享回答"
-                  onPress={() => setIsSharing(true)}
-                />
-                {answer?.relationship?.is_author && (
-                  <View className="h-px my-1.5 bg-[rgba(150,150,150,0.15)]" />
-                )}
-                {answer?.relationship?.is_author && (
-                  <MenuOption
-                    icon="trash-outline"
-                    label="删除回答"
-                    color={Colors[colorScheme].danger}
-                    onPress={() => {
-                      handleDelete();
-                      setMenuVisible(false);
-                    }}
-                  />
-                )}
-              </View>
-              <Pressable
-                className="py-[18px] mt-2.5 items-center"
-                onPress={() => setMenuVisible(false)}
-              >
-                <Text className="text-base font-bold">取消</Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Modal>
-      )}
+      <ActionSheet
+        visible={menuVisible && !isSharing}
+        onClose={() => setMenuVisible(false)}
+        title="回答操作"
+        options={[
+          {
+            key: 'like',
+            icon: isLiked ? 'heart' : 'heart-outline',
+            label: isLiked ? '取消喜欢' : '加入喜欢',
+            color: isLiked ? Colors[colorScheme].danger : undefined,
+            onPress: () => setIsLiked(!isLiked),
+          },
+          {
+            key: 'collection',
+            icon: isCollected ? 'star' : 'star-outline',
+            label: isCollected ? '取消收藏' : '移至收藏',
+            color: isCollected ? warningColor : undefined,
+            onPress: () => collectMutation.mutate(),
+          },
+          {
+            key: 'share',
+            icon: 'share-social-outline',
+            label: '分享回答',
+            onPress: () => setIsSharing(true),
+          },
+          ...(answer?.relationship?.is_author
+            ? [
+                {
+                  key: 'delete',
+                  icon: 'trash-outline' as const,
+                  label: '删除回答',
+                  destructive: true,
+                  onPress: handleDelete,
+                },
+              ]
+            : []),
+        ]}
+      />
     </View>
   );
 };

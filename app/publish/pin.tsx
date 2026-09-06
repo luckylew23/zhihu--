@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createPin } from '@/api/zhihu';
 import { BouncyButton } from '@/components/BouncyButton';
-import { Text, View } from '@/components/Themed';
+import { Text, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 
@@ -23,7 +23,7 @@ export default function PublishPinScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const queryClient = useQueryClient();
-  const tintColor = Colors[colorScheme].tint;
+  const tintColor = useThemeColor({}, 'primary');
   const textColor = Colors[colorScheme].text;
   const secondaryColor = Colors[colorScheme].textSecondary;
   const borderCol = Colors[colorScheme].border;
@@ -59,9 +59,12 @@ export default function PublishPinScreen() {
         className="flex-row items-center justify-between px-4 pb-3"
         style={{ paddingTop: insets.top + 10 }}
       >
-        <Pressable onPress={() => router.back()} className="p-1">
+        <BouncyButton
+          onPress={() => router.back()}
+          className="p-2 rounded-full"
+        >
           <Ionicons name="close" size={28} color={textColor} />
-        </Pressable>
+        </BouncyButton>
         <Text className="text-lg font-bold">发想法</Text>
         <BouncyButton
           disabled={!isPublishEnabled}

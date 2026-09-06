@@ -1,19 +1,21 @@
-import CookieManager from '@react-native-cookies/cookies';
+import CookieManager from '@preeternal/react-native-cookie-manager';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { ActivityIndicator, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { getMe } from '@/api/zhihu';
-import { Text, View } from '@/components/Themed';
+import { BouncyButton } from '@/components/BouncyButton';
+import { Text, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useVerificationStore } from '@/store/useVerificationStore';
+import { syncNativeSessionCookies } from '@/utils/authSession';
 
 export default function LoginScreen() {
   const colorScheme = useColorScheme();
+  const primaryColor = useThemeColor({}, 'primary');
   const router = useRouter();
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(true);
@@ -21,7 +23,6 @@ export default function LoginScreen() {
   const borderColor = Colors[colorScheme].border;
 
   const handleCookies = async (web_cookie: string) => {
-    console.log(web_cookie, '1111');
     // 关键：只有当包含 z_c0 (登录 Token) 时才认为是有效的登录 Cookie
     // 获取 httpOnly cookie，webview 注入 js 是不行的，需要原生支持
     try {
@@ -66,16 +67,11 @@ export default function LoginScreen() {
           .map(([name, value]) => `${name}=${value}`)
           .join('; ');
 
-        // 尝试保存到 SecureStore 作为备份，但 Android 有 2048 字节限制，超出会崩溃
+        // 同步原生 Cookie 与兼容备份；超长 Cookie 会主动清除旧备份。
         try {
-          if (cookieString.length < 2000) {
-            await SecureStore.setItemAsync('user_cookies', cookieString);
-          }
-        } catch (e) {
-          console.warn(
-            '⚠️ 无法保存 Cookie 到 SecureStore (可能超出长度限制):',
-            e,
-          );
+          await syncNativeSessionCookies(cookieString);
+        } catch {
+          console.warn('⚠️ 无法同步原生登录会话');
         }
 
         useAuthStore.getState().setCookies(cookieString);
@@ -86,13 +82,13 @@ export default function LoginScreen() {
           if (me) {
             useAuthStore.getState().addAccount(cookieString, me);
           }
-        } catch (e) {
-          console.error('⚠️ 预抓取用户信息失败 (不影响登录):', e);
+        } catch {
+          console.error('⚠️ 预抓取用户信息失败（不影响登录）');
         }
 
         useVerificationStore.getState().hide(); // 登录成功后强制关闭验证弹窗
         queryClient.clear(); // 清理缓存，强制重新拉取数据 (解决 feed 不更新问题)
-        console.log('✅ 登录 Cookie 已保存至 SecureStore 和 AuthStore');
+        console.log('✅ 登录会话已保存');
 
         // 成功后跳转，确保存储生效
         if (router.canGoBack()) {
@@ -102,13 +98,13 @@ export default function LoginScreen() {
           router.replace({
             pathname: '/(tabs)',
             params: { tab: 'profile' },
-          } as any);
+          });
         }
       } else if (hasZc0 && !hasZseCk) {
         console.log('⚠️ 捕获到 z_c0 但缺失 __zse_ck，请在验证页面稍候...');
       }
-    } catch (error) {
-      console.error('❌ 获取 Cookie 失败:', error);
+    } catch {
+      console.error('❌ 获取 Cookie 失败');
     }
   };
 
@@ -120,7 +116,8 @@ export default function LoginScreen() {
         className="h-[60px] flex-row items-center justify-between px-[15px] pt-[10px]"
         style={{ borderBottomWidth: 1, borderBottomColor: borderColor }}
       >
-        <Pressable
+        <BouncyButton
+          className="p-2 rounded-full"
           onPress={() => {
             if (router.canGoBack()) {
               router.back();
@@ -129,8 +126,10 @@ export default function LoginScreen() {
             }
           }}
         >
-          <Text className="text-[#0084ff] text-base">取消</Text>
-        </Pressable>
+          <Text type="primary" className="text-base">
+            取消
+          </Text>
+        </BouncyButton>
         <Text className="text-base font-bold">登录知乎</Text>
         <View className="w-10 bg-transparent" />
       </View>
@@ -175,7 +174,7 @@ export default function LoginScreen() {
             backgroundColor: 'rgba(0,0,0,0.3)',
           }}
         >
-          <ActivityIndicator size="large" color="#0084ff" />
+          <ActivityIndicator size="large" color={primaryColor} />
         </View>
       )}
     </View>

@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
+import { StatusBar } from 'expo-status-bar';
 import { Modal, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import Colors from '@/constants/Colors';
 import { useVerificationStore } from '@/store/useVerificationStore';
 import { BouncyButton } from './BouncyButton';
 import { Text, View } from './Themed';
@@ -39,13 +41,24 @@ export const VerificationModal = () => {
       onRequestClose={hide}
     >
       <SafeAreaView style={styles.container}>
+        <StatusBar
+          style="dark"
+          backgroundColor={Colors.light.backgroundSecondary}
+        />
         <View style={styles.header}>
-          <Text style={styles.title}>安全验证</Text>
+          <Text
+            lightColor={Colors.light.text}
+            darkColor={Colors.dark.textInverse}
+            style={styles.title}
+          >
+            安全验证
+          </Text>
           <BouncyButton onPress={hide} style={styles.closeButton}>
             <Ionicons name="close" size={24} color="#666" />
           </BouncyButton>
         </View>
         <WebView
+          style={styles.webView}
           source={{ uri: verificationUrl }}
           onNavigationStateChange={handleNavigationStateChange}
           javaScriptEnabled={true}
@@ -61,7 +74,7 @@ export const VerificationModal = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.light.backgroundSecondary,
   },
   header: {
     height: 54,
@@ -69,7 +82,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#eee',
+    borderBottomColor: Colors.light.border,
     position: 'relative',
   },
   title: {
@@ -80,5 +93,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 15,
     padding: 5,
+  },
+  webView: {
+    backgroundColor: Colors.light.backgroundSecondary,
   },
 });

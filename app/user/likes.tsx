@@ -2,13 +2,16 @@ import { FlashList } from '@shopify/flash-list';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { ActivityIndicator, StyleSheet } from 'react-native';
 import { getMyLikes } from '@/api/zhihu';
+import { BouncyButton } from '@/components/BouncyButton';
 import { CreationCard } from '@/components/CreationCard';
+import { QueryErrorView } from '@/components/QueryErrorView';
 import { Text, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { useZhihuInfiniteQuery } from '@/hooks/useZhihuInfiniteQuery';
+import type { ZhihuMemberRelation } from '@/types/zhihu';
 import { refreshInfiniteQuery } from '@/utils/query';
 
 export default function MyLikesScreen() {
@@ -29,6 +32,7 @@ export default function MyLikesScreen() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    isError,
     refetch,
     isRefetching,
   } = useZhihuInfiniteQuery({
@@ -42,7 +46,7 @@ export default function MyLikesScreen() {
     return refreshInfiniteQuery(queryClient, ['my-likes', activeTab], refetch);
   }, [queryClient, activeTab, refetch]);
 
-  const listItems = data?.pages.flatMap((page: any) => page.data) || [];
+  const listItems = data?.pages.flatMap((page) => page.data) || [];
 
   return (
     <View className="flex-1">
@@ -53,7 +57,7 @@ export default function MyLikesScreen() {
           borderBottomColor: borderColor,
         }}
       >
-        <Pressable
+        <BouncyButton
           className="flex-1 py-[15px] items-center"
           style={
             activeTab === 'answers'
@@ -64,12 +68,17 @@ export default function MyLikesScreen() {
         >
           <Text
             className="font-bold"
-            style={{ color: activeTab === 'answers' ? primaryColor : '#888' }}
+            style={{
+              color:
+                activeTab === 'answers'
+                  ? primaryColor
+                  : Colors[colorScheme].iconMuted,
+            }}
           >
             回答
           </Text>
-        </Pressable>
-        <Pressable
+        </BouncyButton>
+        <BouncyButton
           className="flex-1 py-[15px] items-center"
           style={
             activeTab === 'articles'
@@ -80,22 +89,27 @@ export default function MyLikesScreen() {
         >
           <Text
             className="font-bold"
-            style={{ color: activeTab === 'articles' ? primaryColor : '#888' }}
+            style={{
+              color:
+                activeTab === 'articles'
+                  ? primaryColor
+                  : Colors[colorScheme].iconMuted,
+            }}
           >
             文章
           </Text>
-        </Pressable>
+        </BouncyButton>
       </View>
 
-      <FlashList
+      <FlashList<ZhihuMemberRelation>
         data={listItems}
-        renderItem={({ item }: { item: any }) => (
+        keyExtractor={(item) => String(item.id)}
+        renderItem={({ item }) => (
           <CreationCard
             item={item}
             type={activeTab === 'answers' ? 'answer' : 'article'}
           />
         )}
-        {...({ estimatedItemSize: 150 } as any)}
         onEndReached={() => {
           if (hasNextPage && !isFetchingNextPage) fetchNextPage();
         }}
@@ -105,6 +119,12 @@ export default function MyLikesScreen() {
           <View className="flex-1 p-[100px] items-center">
             {isLoading ? (
               <ActivityIndicator color={primaryColor} />
+            ) : isError ? (
+              <QueryErrorView
+                compact
+                message="点赞内容加载失败"
+                onRetry={() => void handleRefresh()}
+              />
             ) : (
               <Text type="secondary">还没有点赞过内容喵</Text>
             )}

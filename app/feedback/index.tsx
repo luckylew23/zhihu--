@@ -1,16 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Linking, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { Text, View } from '@/components/Themed';
+import { Linking, ScrollView, StyleSheet } from 'react-native';
+import { BouncyButton } from '@/components/BouncyButton';
+import { Text, useThemeColor, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 
 export default function FeedbackScreen() {
   const colorScheme = useColorScheme();
   const router = useRouter();
-  const accentColor = Colors[colorScheme].tint;
+  const accentColor = useThemeColor({}, 'primary');
   const borderColor = Colors[colorScheme].border;
-  const surfaceColor = colorScheme === 'dark' ? '#1c1c1e' : '#fff';
+  const surfaceColor = Colors[colorScheme].backgroundSecondary;
 
   return (
     <View className="flex-1">
@@ -23,12 +24,12 @@ export default function FeedbackScreen() {
           borderBottomColor: borderColor,
         }}
       >
-        <Pressable
+        <BouncyButton
           onPress={() => router.back()}
-          className="w-10 h-10 justify-center items-center -ml-[10px]"
+          className="w-10 h-10 justify-center items-center -ml-[10px] rounded-full"
         >
           <Ionicons name="chevron-back" size={24} color={accentColor} />
-        </Pressable>
+        </BouncyButton>
         <Text className="text-lg font-bold">反馈与建议</Text>
         <View className="w-10" />
       </View>
@@ -48,7 +49,7 @@ export default function FeedbackScreen() {
               backgroundColor: surfaceColor,
             }}
           >
-            <Pressable
+            <BouncyButton
               className="flex-row items-center p-4"
               onPress={() =>
                 Linking.openURL('https://github.com/huamurui/zhihu-minus-minus')
@@ -68,8 +69,12 @@ export default function FeedbackScreen() {
                   huamurui/zhihu-minus-minus
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#ccc" />
-            </Pressable>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={Colors[colorScheme].tabIconDefault}
+              />
+            </BouncyButton>
 
             <View
               className="mx-4"
@@ -79,7 +84,7 @@ export default function FeedbackScreen() {
               }}
             />
 
-            <Pressable
+            <BouncyButton
               className="flex-row items-center p-4"
               onPress={() => Linking.openURL('mailto:huamurui@outlook.com')}
             >
@@ -95,8 +100,12 @@ export default function FeedbackScreen() {
                   huamurui@outlook.com
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#ccc" />
-            </Pressable>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={Colors[colorScheme].tabIconDefault}
+              />
+            </BouncyButton>
           </View>
         </View>
       </ScrollView>
